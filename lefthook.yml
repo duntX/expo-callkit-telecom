@@ -1,0 +1,16 @@
+# Git hooks managed by lefthook (https://lefthook.dev).
+# Run `lefthook install` once after cloning to wire up the hooks.
+# Formatters live in the flox env — commit from a `flox activate` shell so
+# `swift-format` and `ktfmt` are on PATH.
+pre-commit:
+  parallel: true
+  commands:
+    swift-format:
+      glob: "ios/*.swift"
+      run: swift-format format --in-place {staged_files}
+      stage_fixed: true
+    ktfmt:
+      # Kotlin official style guide = 4-space indent (matches the rest of the module).
+      glob: "android/src/*.kt"
+      run: ktfmt --kotlinlang-style {staged_files}
+      stage_fixed: true

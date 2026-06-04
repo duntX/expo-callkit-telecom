@@ -15,6 +15,7 @@ ffmpeg.pkg-path = "ffmpeg"
 swift-format.pkg-path = "swift-format"
 ktfmt.pkg-path = "ktfmt"
 imagemagick.pkg-path = "imagemagick"
+lefthook.pkg-path = "lefthook"
 # gum.pkg-path = "gum"
 # gum.version = "^0.14.5"
 
@@ -33,8 +34,10 @@ ANDROID_HOME = "$HOME/Library/Android/sdk"
 ##  ... run by _bash_ shell when you run 'flox activate'.
 ## -------------------------------------------------------------------
 [hook]
-# on-activate = '''
-# '''
+on-activate = '''
+  # Keep git hooks wired up (idempotent) so commits run the formatters.
+  lefthook install
+'''
 
 
 ## Profile script ----------------------------------------------------
