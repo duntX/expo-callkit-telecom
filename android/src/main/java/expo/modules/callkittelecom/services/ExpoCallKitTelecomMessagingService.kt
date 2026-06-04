@@ -27,7 +27,8 @@ class ExpoCallKitTelecomMessagingService : ExpoFirebaseMessagingService() {
     companion object {
         private const val TAG = "ExpoCallKitTelecom.FCM"
         private const val KEY_MESSAGE_TYPE = "messageType"
-        // Canonical camelCase envelope plus the snake_case form accepted for backwards compatibility.
+        // Canonical camelCase envelope plus the snake_case form accepted for backwards
+        // compatibility.
         private val MESSAGE_TYPE_INCOMING_CALL = setOf("incomingCall", "incoming_call")
         private val KEYS_INCOMING_CALL = listOf("incomingCall", "incoming_call")
         private const val DEDUP_WINDOW_MS = 120_000L
