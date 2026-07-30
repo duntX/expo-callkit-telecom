@@ -69,6 +69,15 @@ Tested end-to-end on real devices via the runnable `example/` app. Full compatib
 bun add expo-callkit-telecom
 ```
 
+Peer dependencies:
+
+```sh
+bun add @livekit/react-native-webrtc expo-notifications
+```
+
+- [`@livekit/react-native-webrtc`](https://github.com/livekit/react-native-webrtc) `>= 144` — if your app already uses `react-native-webrtc`, replace it with this fork; the two cannot be installed side by side.
+- [`expo-notifications`](https://docs.expo.dev/versions/latest/sdk/notifications/) — required on Android, where the module's FCM service builds on it.
+
 Add the config plugin to `app.json` / `app.config.ts`. Minimal form:
 
 ```jsonc
