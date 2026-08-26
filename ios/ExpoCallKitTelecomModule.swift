@@ -292,8 +292,9 @@ public class ExpoCallKitTelecomModule: Module {
     // MARK: - Call Session
 
     AsyncFunction("getActiveCallSession") { () -> [String: Any]? in
-      guard let session = await CallManager.shared.store.firstSession
-      else {
+      let nonHeldSession = await CallManager.shared.store.firstNonHeldSession
+      let firstSession = await CallManager.shared.store.firstSession
+      guard let session = nonHeldSession ?? firstSession else {
         return nil
       }
       return session.toDictionary()

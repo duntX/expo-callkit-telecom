@@ -11,9 +11,24 @@ actor CallStore {
   }
   private var sessionObservers: [UUID: [UUID: SessionObserver]] = [:]
 
-  /// The first session, if any.
+  /// The first session in insertion order, if any.
   var firstSession: CallSession? {
     sessions.values.first
+  }
+
+  /// The first session that is not currently held, if any.
+  var firstNonHeldSession: CallSession? {
+    sessions.values.first { !$0.isOnHold }
+  }
+
+  /// Whether a new non-held call may be created.
+  var canStartNewSession: Bool {
+    sessions.count < 2 && !sessions.values.contains { !$0.isOnHold }
+  }
+
+  /// Whether another session is currently not held.
+  func hasOtherNonHeldSession(_ id: UUID) -> Bool {
+    sessions.values.contains { $0.id != id && !$0.isOnHold }
   }
 
   /// All sessions in insertion order.

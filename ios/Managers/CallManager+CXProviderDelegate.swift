@@ -40,6 +40,10 @@ extension CallManager: CXProviderDelegate {
       {
         let update = CXCallUpdate()
         setLocalizedCallerNameIfNeeded(for: participant, on: update)
+        update.supportsHolding = supportsHolding
+        update.supportsGrouping = supportsGrouping
+        update.supportsUngrouping = supportsUngrouping
+        update.supportsDTMF = supportsDTMF
         provider.reportCall(with: action.callUUID, updated: update)
       }
 
@@ -142,15 +146,22 @@ extension CallManager: CXProviderDelegate {
     Log.call.debug("CXSetHeldCallAction - id: \(action.callUUID), isOnHold: \(action.isOnHold)")
 
     Task {
+      if !action.isOnHold && await store.hasOtherNonHeldSession(action.callUUID) {
+        Log.call.warning(
+          "CXSetHeldCallAction rejected - another session is already not held: \(action.callUUID)")
+        action.fail()
+        return
+      }
+
       await store.updateHeld(for: action.callUUID, isOnHold: action.isOnHold)
 
       await MainActor.run {
         CallEventEmitter.shared.send(
           SetHeldActionEvent(id: action.callUUID, isOnHold: action.isOnHold))
       }
-    }
 
-    action.fulfill()
+      action.fulfill()
+    }
   }
 
   // MARK: - CXPlayDTMFCallAction
@@ -177,7 +188,7 @@ extension CallManager: CXProviderDelegate {
       AudioManager.shared.onAVAudioSessionActivated(calls: sessions)
 
       // Play dialtone for outgoing calls that are still connecting
-      if let session = sessions.first,
+      if let session = sessions.first(where: { !$0.isOnHold }),
         session.origin == .outgoingApp || session.origin == .outgoingSystem,
         session.status == .connecting
       {

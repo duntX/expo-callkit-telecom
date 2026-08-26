@@ -113,7 +113,10 @@ extension VoIPPushManager: PKPushRegistryDelegate {
       }
       // Immediately end the call since it's invalid
       Task {
-        if let session = await CallManager.shared.store.firstSession {
+        let sessions = await CallManager.shared.store.allSessions
+        if let session = sessions.first(where: {
+          $0.incomingCallEvent?.eventId == fallbackEvent.eventId
+        }) {
           await CallManager.shared.reportCallEnded(for: session.id, reason: .failed)
         }
       }
