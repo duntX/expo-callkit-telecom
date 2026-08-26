@@ -1,4 +1,5 @@
 import { registerVoIPPush, useVoIPPushToken } from "expo-callkit-telecom";
+import * as Notifications from "expo-notifications";
 import { useEffect } from "react";
 import { ScrollView, StyleSheet, Text } from "react-native";
 import {
@@ -27,8 +28,11 @@ export default function App() {
   useAllEvents(append);
 
   useEffect(() => {
+    Notifications.requestPermissionsAsync().catch((e) =>
+      append(`notification permission error: ${e}`),
+    );
     registerVoIPPush();
-  }, []);
+  }, [append]);
 
   useEffect(() => {
     if (voip) console.log("VoIP device token:", voip.token);
