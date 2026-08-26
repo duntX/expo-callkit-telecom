@@ -1,13 +1,8 @@
 import {
   type AudioSession,
   type CallSession,
-  endCall,
-  reportCallEnded,
   reportIncomingCall,
-  reportVideo,
   setAudioSessionPortOverride,
-  setHeld,
-  setMuted,
   startOutgoingCall,
 } from "expo-callkit-telecom";
 import { randomUUID } from "expo-crypto";
@@ -17,7 +12,8 @@ import { ActionButton } from "./ActionButton";
 import { Card } from "./Card";
 
 interface ActionsCardProps {
-  session: CallSession | null;
+  activeSession: CallSession | null;
+  sessions: CallSession[];
   audio: AudioSession;
   canConnect: boolean;
   onConnect: () => void;
@@ -26,7 +22,8 @@ interface ActionsCardProps {
 }
 
 export function ActionsCard({
-  session,
+  activeSession,
+  sessions,
   audio,
   canConnect,
   onConnect,
@@ -57,19 +54,21 @@ export function ActionsCard({
   const onSpeaker = audio.currentRoute.outputs.some(
     (o) => o.portType === "builtInSpeaker",
   );
-  const hasVideo = session?.options.hasVideo ?? false;
+  const hasVideo = activeSession?.options.hasVideo ?? false;
+  const canStartAnotherCall =
+    sessions.length < 2 && sessions.every((session) => session.isOnHold);
 
   return (
     <Card title="Actions">
       <ActionButton
         title="Start outgoing call"
-        disabled={!!session}
+        disabled={!canStartAnotherCall}
         onPress={() => promptCallKind("Start outgoing call", startOutgoing)}
       />
       <View style={styles.spacer} />
       <ActionButton
         title="Simulate incoming call"
-        disabled={!!session}
+        disabled={!canStartAnotherCall}
         onPress={() =>
           promptCallKind("Simulate incoming call", simulateIncoming)
         }
@@ -89,43 +88,9 @@ export function ActionsCard({
       />
       <View style={styles.divider} />
       <ActionButton
-        title={session?.isMuted ? "Unmute" : "Mute"}
-        disabled={!session}
-        onPress={() => session && setMuted(session.id, !session.isMuted)}
-      />
-      <View style={styles.spacer} />
-      <ActionButton
-        title={session?.isOnHold ? "Resume" : "Hold"}
-        disabled={!session}
-        onPress={() => session && setHeld(session.id, !session.isOnHold)}
-      />
-      <View style={styles.spacer} />
-      <ActionButton
         title={onSpeaker ? "Switch to Earpiece" : "Switch to Speaker"}
-        disabled={!session || hasVideo}
+        disabled={!activeSession || hasVideo}
         onPress={() => setAudioSessionPortOverride(!onSpeaker)}
-      />
-      <View style={styles.spacer} />
-      <ActionButton
-        title={hasVideo ? "Disable Video" : "Enable Video"}
-        disabled={!session}
-        onPress={() => session && reportVideo(session.id, !hasVideo)}
-      />
-      <View style={styles.divider} />
-      <ActionButton
-        title="End Call"
-        variant="destructive"
-        disabled={!session}
-        onPress={() => session && endCall(session.id)}
-      />
-      <View style={styles.spacer} />
-      <ActionButton
-        title="Report Remote Ended"
-        variant="destructive"
-        disabled={!session}
-        onPress={() =>
-          session && reportCallEnded(session.id, "remoteEnded")
-        }
       />
     </Card>
   );

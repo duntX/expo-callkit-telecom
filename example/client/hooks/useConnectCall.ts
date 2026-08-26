@@ -40,7 +40,13 @@ export function useConnectCall(): {
       addCallAnsweredListener(({ id, requestId }) =>
         setPending((p) => ({ ...p, incomingId: id, requestId })),
       ),
-      addCallEndedListener(() => setPending({})),
+      addCallEndedListener(({ id }) =>
+        setPending((p) => ({
+          outgoingId: p.outgoingId === id ? undefined : p.outgoingId,
+          incomingId: p.incomingId === id ? undefined : p.incomingId,
+          requestId: p.incomingId === id ? undefined : p.requestId,
+        })),
+      ),
     ];
     return () => subs.forEach((s) => s.remove());
   }, []);
