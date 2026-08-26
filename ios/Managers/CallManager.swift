@@ -24,7 +24,7 @@ class CallManager: NSObject {
   private let callController = CXCallController()
   private let provider: CXProvider
 
-  private let supportsHolding = false
+  private let supportsHolding = true
   private let supportsGrouping = false
   private let supportsUngrouping = false
   private let supportsDTMF = false
@@ -57,7 +57,7 @@ class CallManager: NSObject {
     let configuration = CXProviderConfiguration()
     configuration.supportsVideo = true
     configuration.maximumCallGroups = 1
-    configuration.maximumCallsPerCallGroup = 1
+    configuration.maximumCallsPerCallGroup = 2
     configuration.supportedHandleTypes = [.phoneNumber, .generic]
     configuration.includesCallsInRecents = true
 
@@ -213,9 +213,9 @@ class CallManager: NSObject {
     options: CallOptions,
     isAppInitiated: Bool = true
   ) async throws -> UUID {
-    // Guard against starting a new call while one is already active
-    if let existingSession = await store.firstSession {
-      Log.call.warning("Cannot start outgoing call - session already exists: \(existingSession.id)")
+    let canStartSession = await store.canStartNewSession
+    if !canStartSession {
+      Log.call.warning("Cannot start outgoing call - max sessions reached or a session is not held")
       throw CallError.sessionAlreadyExists
     }
 
@@ -279,6 +279,12 @@ class CallManager: NSObject {
   /// - Parameter event: The incoming call event containing caller info.
   /// - Throws: An error if CallKit rejects the incoming call report.
   func reportIncomingCall(event: IncomingCallEvent) async throws {
+    let canStartSession = await store.canStartNewSession
+    if !canStartSession {
+      Log.call.warning("Cannot report incoming call - max sessions reached or a session is not held")
+      throw CallError.sessionAlreadyExists
+    }
+
     let id = UUID()
     Log.call.debug("Reporting incoming call - id: \(id)")
 
@@ -356,6 +362,23 @@ class CallManager: NSObject {
   ///   - event: The incoming call event containing caller info.
   ///   - completion: Called when the CallKit report completes (success or failure).
   func reportIncomingCall(event: IncomingCallEvent, completion: @escaping (Error?) -> Void) {
+    Task {
+      let canStartSession = await store.canStartNewSession
+      guard canStartSession else {
+        Log.call.warning(
+          "Cannot report incoming call - max sessions reached or a session is not held")
+        completion(CallError.sessionAlreadyExists)
+        return
+      }
+
+      reportIncomingCallAfterValidation(event: event, completion: completion)
+    }
+  }
+
+  private func reportIncomingCallAfterValidation(
+    event: IncomingCallEvent,
+    completion: @escaping (Error?) -> Void
+  ) {
     let id = UUID()
     Log.call.debug("Reporting incoming call (sync) - id: \(id)")
 
@@ -660,6 +683,11 @@ class CallManager: NSObject {
   /// - Throws: An error if CallKit rejects the hold request.
   func setHeld(for id: UUID, onHold: Bool) async throws {
     Log.call.debug("Setting hold state - id: \(id), onHold: \(onHold)")
+    if !onHold && await store.hasOtherNonHeldSession(id) {
+      Log.call.warning("Cannot unhold call - another session is already not held: \(id)")
+      throw CallError.sessionAlreadyExists
+    }
+
     let action = CXSetHeldCallAction(call: id, onHold: onHold)
     let transaction = CXTransaction(action: action)
 

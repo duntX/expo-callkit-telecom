@@ -132,7 +132,7 @@ class CallManager private constructor() {
 
         CallAudioManager.initialize(context)
         CallAudioManager.onRequestEndpointChange = { endpoint ->
-            val activeId = CallStore.firstSession()?.id
+            val activeId = CallStore.firstNonHeldSession()?.id
             if (activeId != null) {
                 activeCalls[activeId]?.actions?.endpointChange?.trySend(endpoint)
             }
@@ -217,16 +217,15 @@ class CallManager private constructor() {
      * Starts a new outgoing call via Core-Telecom.
      *
      * Steps:
-     * - validates single-session constraint
+     * - validates two-session / one-non-held-session constraint
      * - creates/queues local session
      * - preps audio for call
      * - calls addCall with DIRECTION_OUTGOING
      */
     fun startOutgoingCall(recipient: CallParticipant, options: CallOptions): String {
-        val existingSession = CallStore.firstSession()
-        if (existingSession != null) {
+        if (!CallStore.canStartNewSession()) {
             CallKitTelecomLog.w(TAG) {
-                "Cannot start outgoing call - session already exists: ${existingSession.id}"
+                "Cannot start outgoing call - max sessions reached or a session is not held"
             }
             throw IllegalStateException("A call session already exists")
         }
@@ -309,17 +308,16 @@ class CallManager private constructor() {
      * Reports an incoming call via Core-Telecom.
      *
      * Steps:
-     * - validates single-session constraint
+     * - validates two-session / one-non-held-session constraint
      * - creates ringing session in store
      * - shows incoming call notification
      * - calls addCall with DIRECTION_INCOMING
      * - emits `onIncomingCallReported`
      */
     fun reportIncomingCall(event: IncomingCallEvent) {
-        val existingSession = CallStore.firstSession()
-        if (existingSession != null) {
+        if (!CallStore.canStartNewSession()) {
             CallKitTelecomLog.w(TAG) {
-                "Cannot report incoming call - session already exists: ${existingSession.id}"
+                "Cannot report incoming call - max sessions reached or a session is not held"
             }
             throw IllegalStateException("A call session already exists")
         }
@@ -630,6 +628,13 @@ class CallManager private constructor() {
     /** Sets hold state, updates Core-Telecom scope state, and emits `onSetHeldAction`. */
     fun setHeld(id: UUID, onHold: Boolean) {
         CallKitTelecomLog.d(TAG) { "Setting hold state - id: $id, onHold: $onHold" }
+        if (!onHold && CallStore.hasOtherNonHeldSession(id)) {
+            CallKitTelecomLog.w(TAG) {
+                "Cannot unhold call - another session is already not held: $id"
+            }
+            throw IllegalStateException("Another call session is already active")
+        }
+
         CallStore.updateHeld(id, onHold)
 
         if (onHold) {
@@ -696,7 +701,14 @@ class CallManager private constructor() {
                             sendDisconnect = false,
                         )
                     },
-                    onSetActive = { setHeld(id, false) },
+                    onSetActive = {
+                        runCatching { setHeld(id, false) }
+                            .onFailure { error ->
+                                CallKitTelecomLog.w(TAG) {
+                                    "Ignoring set-active request - id: $id, error: ${error.message}"
+                                }
+                            }
+                    },
                     onSetInactive = { setHeld(id, true) },
                 ) {
                     val callScope: CallControlScope = this
@@ -777,6 +789,7 @@ class CallManager private constructor() {
         launch {
             callScope.availableEndpoints.collect { endpoints ->
                 CallStore.session(id) ?: return@collect
+                if (CallStore.firstNonHeldSession()?.id != id) return@collect
                 CallKitTelecomLog.d(TAG) {
                     "Available endpoints changed - id: $id, count: ${endpoints.size}"
                 }
@@ -787,6 +800,7 @@ class CallManager private constructor() {
         launch {
             callScope.currentCallEndpoint.collect { endpoint ->
                 CallStore.session(id) ?: return@collect
+                if (CallStore.firstNonHeldSession()?.id != id) return@collect
                 CallKitTelecomLog.d(TAG) {
                     "Endpoint changed - id: $id, type: ${endpoint.type}, name: ${endpoint.name}"
                 }

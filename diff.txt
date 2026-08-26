@@ -1,0 +1,341 @@
+diff --git a/android/src/main/java/expo/modules/callkittelecom/ExpoCallKitTelecomModule.kt b/android/src/main/java/expo/modules/callkittelecom/ExpoCallKitTelecomModule.kt
+index f6443f6..b65ca22 100644
+--- a/android/src/main/java/expo/modules/callkittelecom/ExpoCallKitTelecomModule.kt
++++ b/android/src/main/java/expo/modules/callkittelecom/ExpoCallKitTelecomModule.kt
+@@ -216,8 +216,10 @@ class ExpoCallKitTelecomModule : Module() {
+ 
+         // region Call Session
+ 
+-        // Returns the first active call session, if present.
+-        AsyncFunction("getActiveCallSession") { CallStore.firstSession()?.toMap() }
++        // Returns the non-held session, or the first held session if all calls are held.
++        AsyncFunction("getActiveCallSession") {
++            (CallStore.firstNonHeldSession() ?: CallStore.firstSession())?.toMap()
++        }
+ 
+         // endregion
+ 
+diff --git a/android/src/main/java/expo/modules/callkittelecom/managers/CallManager.kt b/android/src/main/java/expo/modules/callkittelecom/managers/CallManager.kt
+index f082a48..c30805e 100644
+--- a/android/src/main/java/expo/modules/callkittelecom/managers/CallManager.kt
++++ b/android/src/main/java/expo/modules/callkittelecom/managers/CallManager.kt
+@@ -132,7 +132,7 @@ class CallManager private constructor() {
+ 
+         CallAudioManager.initialize(context)
+         CallAudioManager.onRequestEndpointChange = { endpoint ->
+-            val activeId = CallStore.firstSession()?.id
++            val activeId = CallStore.firstNonHeldSession()?.id
+             if (activeId != null) {
+                 activeCalls[activeId]?.actions?.endpointChange?.trySend(endpoint)
+             }
+@@ -217,16 +217,15 @@ class CallManager private constructor() {
+      * Starts a new outgoing call via Core-Telecom.
+      *
+      * Steps:
+-     * - validates single-session constraint
++     * - validates two-session / one-non-held-session constraint
+      * - creates/queues local session
+      * - preps audio for call
+      * - calls addCall with DIRECTION_OUTGOING
+      */
+     fun startOutgoingCall(recipient: CallParticipant, options: CallOptions): String {
+-        val existingSession = CallStore.firstSession()
+-        if (existingSession != null) {
++        if (!CallStore.canStartNewSession()) {
+             CallKitTelecomLog.w(TAG) {
+-                "Cannot start outgoing call - session already exists: ${existingSession.id}"
++                "Cannot start outgoing call - max sessions reached or a session is not held"
+             }
+             throw IllegalStateException("A call session already exists")
+         }
+@@ -309,17 +308,16 @@ class CallManager private constructor() {
+      * Reports an incoming call via Core-Telecom.
+      *
+      * Steps:
+-     * - validates single-session constraint
++     * - validates two-session / one-non-held-session constraint
+      * - creates ringing session in store
+      * - shows incoming call notification
+      * - calls addCall with DIRECTION_INCOMING
+      * - emits `onIncomingCallReported`
+      */
+     fun reportIncomingCall(event: IncomingCallEvent) {
+-        val existingSession = CallStore.firstSession()
+-        if (existingSession != null) {
++        if (!CallStore.canStartNewSession()) {
+             CallKitTelecomLog.w(TAG) {
+-                "Cannot report incoming call - session already exists: ${existingSession.id}"
++                "Cannot report incoming call - max sessions reached or a session is not held"
+             }
+             throw IllegalStateException("A call session already exists")
+         }
+@@ -630,6 +628,13 @@ class CallManager private constructor() {
+     /** Sets hold state, updates Core-Telecom scope state, and emits `onSetHeldAction`. */
+     fun setHeld(id: UUID, onHold: Boolean) {
+         CallKitTelecomLog.d(TAG) { "Setting hold state - id: $id, onHold: $onHold" }
++        if (!onHold && CallStore.hasOtherNonHeldSession(id)) {
++            CallKitTelecomLog.w(TAG) {
++                "Cannot unhold call - another session is already not held: $id"
++            }
++            throw IllegalStateException("Another call session is already active")
++        }
++
+         CallStore.updateHeld(id, onHold)
+ 
+         if (onHold) {
+@@ -696,7 +701,14 @@ class CallManager private constructor() {
+                             sendDisconnect = false,
+                         )
+                     },
+-                    onSetActive = { setHeld(id, false) },
++                    onSetActive = {
++                        runCatching { setHeld(id, false) }
++                            .onFailure { error ->
++                                CallKitTelecomLog.w(TAG) {
++                                    "Ignoring set-active request - id: $id, error: ${error.message}"
++                                }
++                            }
++                    },
+                     onSetInactive = { setHeld(id, true) },
+                 ) {
+                     val callScope: CallControlScope = this
+@@ -777,6 +789,7 @@ class CallManager private constructor() {
+         launch {
+             callScope.availableEndpoints.collect { endpoints ->
+                 CallStore.session(id) ?: return@collect
++                if (CallStore.firstNonHeldSession()?.id != id) return@collect
+                 CallKitTelecomLog.d(TAG) {
+                     "Available endpoints changed - id: $id, count: ${endpoints.size}"
+                 }
+@@ -787,6 +800,7 @@ class CallManager private constructor() {
+         launch {
+             callScope.currentCallEndpoint.collect { endpoint ->
+                 CallStore.session(id) ?: return@collect
++                if (CallStore.firstNonHeldSession()?.id != id) return@collect
+                 CallKitTelecomLog.d(TAG) {
+                     "Endpoint changed - id: $id, type: ${endpoint.type}, name: ${endpoint.name}"
+                 }
+diff --git a/android/src/main/java/expo/modules/callkittelecom/store/CallStore.kt b/android/src/main/java/expo/modules/callkittelecom/store/CallStore.kt
+index d181e0d..35871f0 100644
+--- a/android/src/main/java/expo/modules/callkittelecom/store/CallStore.kt
++++ b/android/src/main/java/expo/modules/callkittelecom/store/CallStore.kt
+@@ -26,9 +26,21 @@ object CallStore {
+ 
+     private val sessionObservers = mutableMapOf<UUID, MutableMap<UUID, SessionObserver>>()
+ 
+-    /** Returns the first active session (single-call model). */
++    /** Returns the first session in insertion order. */
+     fun firstSession(): CallSession? = synchronized(lock) { sessions.values.firstOrNull() }
+ 
++    /** Returns the first session that is not currently held, if any. */
++    fun firstNonHeldSession(): CallSession? =
++        synchronized(lock) { sessions.values.firstOrNull { !it.isOnHold } }
++
++    /** Returns whether a new non-held call may be created. */
++    fun canStartNewSession(): Boolean =
++        synchronized(lock) { sessions.size < 2 && sessions.values.none { !it.isOnHold } }
++
++    /** Returns whether another session is currently not held. */
++    fun hasOtherNonHeldSession(id: UUID): Boolean =
++        synchronized(lock) { sessions.values.any { it.id != id && !it.isOnHold } }
++
+     /** Returns all sessions in insertion order. */
+     fun allSessions(): List<CallSession> = synchronized(lock) { sessions.values.toList() }
+ 
+diff --git a/ios/ExpoCallKitTelecomModule.swift b/ios/ExpoCallKitTelecomModule.swift
+index 3acee33..455dd73 100644
+--- a/ios/ExpoCallKitTelecomModule.swift
++++ b/ios/ExpoCallKitTelecomModule.swift
+@@ -292,8 +292,9 @@ public class ExpoCallKitTelecomModule: Module {
+     // MARK: - Call Session
+ 
+     AsyncFunction("getActiveCallSession") { () -> [String: Any]? in
+-      guard let session = await CallManager.shared.store.firstSession
+-      else {
++      let nonHeldSession = await CallManager.shared.store.firstNonHeldSession
++      let firstSession = await CallManager.shared.store.firstSession
++      guard let session = nonHeldSession ?? firstSession else {
+         return nil
+       }
+       return session.toDictionary()
+diff --git a/ios/Managers/CallManager+CXProviderDelegate.swift b/ios/Managers/CallManager+CXProviderDelegate.swift
+index 839768d..4fb0a69 100644
+--- a/ios/Managers/CallManager+CXProviderDelegate.swift
++++ b/ios/Managers/CallManager+CXProviderDelegate.swift
+@@ -40,6 +40,10 @@ extension CallManager: CXProviderDelegate {
+       {
+         let update = CXCallUpdate()
+         setLocalizedCallerNameIfNeeded(for: participant, on: update)
++        update.supportsHolding = supportsHolding
++        update.supportsGrouping = supportsGrouping
++        update.supportsUngrouping = supportsUngrouping
++        update.supportsDTMF = supportsDTMF
+         provider.reportCall(with: action.callUUID, updated: update)
+       }
+ 
+@@ -142,15 +146,22 @@ extension CallManager: CXProviderDelegate {
+     Log.call.debug("CXSetHeldCallAction - id: \(action.callUUID), isOnHold: \(action.isOnHold)")
+ 
+     Task {
++      if !action.isOnHold && await store.hasOtherNonHeldSession(action.callUUID) {
++        Log.call.warning(
++          "CXSetHeldCallAction rejected - another session is already not held: \(action.callUUID)")
++        action.fail()
++        return
++      }
++
+       await store.updateHeld(for: action.callUUID, isOnHold: action.isOnHold)
+ 
+       await MainActor.run {
+         CallEventEmitter.shared.send(
+           SetHeldActionEvent(id: action.callUUID, isOnHold: action.isOnHold))
+       }
+-    }
+ 
+-    action.fulfill()
++      action.fulfill()
++    }
+   }
+ 
+   // MARK: - CXPlayDTMFCallAction
+@@ -177,7 +188,7 @@ extension CallManager: CXProviderDelegate {
+       AudioManager.shared.onAVAudioSessionActivated(calls: sessions)
+ 
+       // Play dialtone for outgoing calls that are still connecting
+-      if let session = sessions.first,
++      if let session = sessions.first(where: { !$0.isOnHold }),
+         session.origin == .outgoingApp || session.origin == .outgoingSystem,
+         session.status == .connecting
+       {
+diff --git a/ios/Managers/CallManager.swift b/ios/Managers/CallManager.swift
+index 7d95d05..1b3039c 100644
+--- a/ios/Managers/CallManager.swift
++++ b/ios/Managers/CallManager.swift
+@@ -24,7 +24,7 @@ class CallManager: NSObject {
+   private let callController = CXCallController()
+   private let provider: CXProvider
+ 
+-  private let supportsHolding = false
++  private let supportsHolding = true
+   private let supportsGrouping = false
+   private let supportsUngrouping = false
+   private let supportsDTMF = false
+@@ -57,7 +57,7 @@ class CallManager: NSObject {
+     let configuration = CXProviderConfiguration()
+     configuration.supportsVideo = true
+     configuration.maximumCallGroups = 1
+-    configuration.maximumCallsPerCallGroup = 1
++    configuration.maximumCallsPerCallGroup = 2
+     configuration.supportedHandleTypes = [.phoneNumber, .generic]
+     configuration.includesCallsInRecents = true
+ 
+@@ -213,9 +213,9 @@ class CallManager: NSObject {
+     options: CallOptions,
+     isAppInitiated: Bool = true
+   ) async throws -> UUID {
+-    // Guard against starting a new call while one is already active
+-    if let existingSession = await store.firstSession {
+-      Log.call.warning("Cannot start outgoing call - session already exists: \(existingSession.id)")
++    let canStartSession = await store.canStartNewSession
++    if !canStartSession {
++      Log.call.warning("Cannot start outgoing call - max sessions reached or a session is not held")
+       throw CallError.sessionAlreadyExists
+     }
+ 
+@@ -279,6 +279,12 @@ class CallManager: NSObject {
+   /// - Parameter event: The incoming call event containing caller info.
+   /// - Throws: An error if CallKit rejects the incoming call report.
+   func reportIncomingCall(event: IncomingCallEvent) async throws {
++    let canStartSession = await store.canStartNewSession
++    if !canStartSession {
++      Log.call.warning("Cannot report incoming call - max sessions reached or a session is not held")
++      throw CallError.sessionAlreadyExists
++    }
++
+     let id = UUID()
+     Log.call.debug("Reporting incoming call - id: \(id)")
+ 
+@@ -356,6 +362,23 @@ class CallManager: NSObject {
+   ///   - event: The incoming call event containing caller info.
+   ///   - completion: Called when the CallKit report completes (success or failure).
+   func reportIncomingCall(event: IncomingCallEvent, completion: @escaping (Error?) -> Void) {
++    Task {
++      let canStartSession = await store.canStartNewSession
++      guard canStartSession else {
++        Log.call.warning(
++          "Cannot report incoming call - max sessions reached or a session is not held")
++        completion(CallError.sessionAlreadyExists)
++        return
++      }
++
++      reportIncomingCallAfterValidation(event: event, completion: completion)
++    }
++  }
++
++  private func reportIncomingCallAfterValidation(
++    event: IncomingCallEvent,
++    completion: @escaping (Error?) -> Void
++  ) {
+     let id = UUID()
+     Log.call.debug("Reporting incoming call (sync) - id: \(id)")
+ 
+@@ -660,6 +683,11 @@ class CallManager: NSObject {
+   /// - Throws: An error if CallKit rejects the hold request.
+   func setHeld(for id: UUID, onHold: Bool) async throws {
+     Log.call.debug("Setting hold state - id: \(id), onHold: \(onHold)")
++    if !onHold && await store.hasOtherNonHeldSession(id) {
++      Log.call.warning("Cannot unhold call - another session is already not held: \(id)")
++      throw CallError.sessionAlreadyExists
++    }
++
+     let action = CXSetHeldCallAction(call: id, onHold: onHold)
+     let transaction = CXTransaction(action: action)
+ 
+diff --git a/ios/Managers/VoIPPushManager+PKPushRegistryDelegate.swift b/ios/Managers/VoIPPushManager+PKPushRegistryDelegate.swift
+index 538f931..5b0cb62 100644
+--- a/ios/Managers/VoIPPushManager+PKPushRegistryDelegate.swift
++++ b/ios/Managers/VoIPPushManager+PKPushRegistryDelegate.swift
+@@ -113,7 +113,10 @@ extension VoIPPushManager: PKPushRegistryDelegate {
+       }
+       // Immediately end the call since it's invalid
+       Task {
+-        if let session = await CallManager.shared.store.firstSession {
++        let sessions = await CallManager.shared.store.allSessions
++        if let session = sessions.first(where: {
++          $0.incomingCallEvent?.eventId == fallbackEvent.eventId
++        }) {
+           await CallManager.shared.reportCallEnded(for: session.id, reason: .failed)
+         }
+       }
+diff --git a/ios/Stores/CallStore.swift b/ios/Stores/CallStore.swift
+index d56551b..6ba8e52 100644
+--- a/ios/Stores/CallStore.swift
++++ b/ios/Stores/CallStore.swift
+@@ -11,11 +11,26 @@ actor CallStore {
+   }
+   private var sessionObservers: [UUID: [UUID: SessionObserver]] = [:]
+ 
+-  /// The first session, if any.
++  /// The first session in insertion order, if any.
+   var firstSession: CallSession? {
+     sessions.values.first
+   }
+ 
++  /// The first session that is not currently held, if any.
++  var firstNonHeldSession: CallSession? {
++    sessions.values.first { !$0.isOnHold }
++  }
++
++  /// Whether a new non-held call may be created.
++  var canStartNewSession: Bool {
++    sessions.count < 2 && !sessions.values.contains { !$0.isOnHold }
++  }
++
++  /// Whether another session is currently not held.
++  func hasOtherNonHeldSession(_ id: UUID) -> Bool {
++    sessions.values.contains { $0.id != id && !$0.isOnHold }
++  }
++
+   /// All sessions in insertion order.
+   var allSessions: [CallSession] {
+     Array(sessions.values)

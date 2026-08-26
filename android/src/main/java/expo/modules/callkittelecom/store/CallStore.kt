@@ -26,8 +26,20 @@ object CallStore {
 
     private val sessionObservers = mutableMapOf<UUID, MutableMap<UUID, SessionObserver>>()
 
-    /** Returns the first active session (single-call model). */
+    /** Returns the first session in insertion order. */
     fun firstSession(): CallSession? = synchronized(lock) { sessions.values.firstOrNull() }
+
+    /** Returns the first session that is not currently held, if any. */
+    fun firstNonHeldSession(): CallSession? =
+        synchronized(lock) { sessions.values.firstOrNull { !it.isOnHold } }
+
+    /** Returns whether a new non-held call may be created. */
+    fun canStartNewSession(): Boolean =
+        synchronized(lock) { sessions.size < 2 && sessions.values.none { !it.isOnHold } }
+
+    /** Returns whether another session is currently not held. */
+    fun hasOtherNonHeldSession(id: UUID): Boolean =
+        synchronized(lock) { sessions.values.any { it.id != id && !it.isOnHold } }
 
     /** Returns all sessions in insertion order. */
     fun allSessions(): List<CallSession> = synchronized(lock) { sessions.values.toList() }
