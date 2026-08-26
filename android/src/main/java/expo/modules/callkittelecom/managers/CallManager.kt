@@ -701,14 +701,7 @@ class CallManager private constructor() {
                             sendDisconnect = false,
                         )
                     },
-                    onSetActive = {
-                        runCatching { setHeld(id, false) }
-                            .onFailure { error ->
-                                CallKitTelecomLog.w(TAG) {
-                                    "Ignoring set-active request - id: $id, error: ${error.message}"
-                                }
-                            }
-                    },
+                    onSetActive = { setHeld(id, false) },
                     onSetInactive = { setHeld(id, true) },
                 ) {
                     val callScope: CallControlScope = this
