@@ -12,13 +12,15 @@ import { EventLogCard } from "./components/EventLogCard";
 import { SessionCard } from "./components/SessionCard";
 import { useAllEvents } from "./hooks/useAllEvents";
 import { useAudioSession } from "./hooks/useAudioSession";
-import { useCallSession } from "./hooks/useCallSession";
+import { useCallSessions } from "./hooks/useCallSession";
 import { useConnectCall } from "./hooks/useConnectCall";
 import { useEventLog } from "./hooks/useEventLog";
 
 export default function App() {
   const { lines, append, clear } = useEventLog();
-  const session = useCallSession();
+  const sessions = useCallSessions();
+  const activeSession =
+    sessions.find((session) => !session.isOnHold) ?? sessions[0] ?? null;
   const audio = useAudioSession();
   const { canConnect, connect, failConnect } = useConnectCall();
   const voip = useVoIPPushToken();
@@ -37,10 +39,11 @@ export default function App() {
       <SafeAreaView style={styles.container}>
         <ScrollView contentContainerStyle={styles.scroll}>
           <Text style={styles.header}>expo-callkit-telecom · example</Text>
-          <SessionCard session={session} />
+          <SessionCard sessions={sessions} onError={append} />
           <AudioSessionCard audio={audio} />
           <ActionsCard
-            session={session}
+            activeSession={activeSession}
+            sessions={sessions}
             audio={audio}
             canConnect={canConnect}
             onConnect={connect}
