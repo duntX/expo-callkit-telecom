@@ -2,8 +2,6 @@
 
 > An Expo module — written in Swift and Kotlin — that wraps **CallKit** on iOS and **Jetpack Core-Telecom** on Android with API parity. It owns the system call UI, the audio session, and VoIP push — your app owns the media (LiveKit, plain WebRTC, etc.).
 
-The module is opinionated about *system integration* and unopinionated about *media*. You wire your media library to the events it emits.
-
 📖 **Full documentation:** [expo-callkit-telecom.mfairley.com](https://expo-callkit-telecom.mfairley.com/)
 
 <p>
