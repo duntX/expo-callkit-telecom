@@ -10,6 +10,7 @@ import { basename, resolve } from "path";
 import {
   ANDROID_CALL_EVENT_ACTION,
   DEFAULT_FULFILL_ANSWER_CALL_TIMEOUT,
+  DEFAULT_FULFILL_END_CALL_TIMEOUT,
   DEFAULT_INCOMING_CALL_TIMEOUT,
   DEFAULT_OUTGOING_CALL_TIMEOUT,
 } from "./constants";
@@ -58,9 +59,15 @@ const withTimeouts: ConfigPlugin<{
   incomingCallTimeout?: number;
   outgoingCallTimeout?: number;
   fulfillAnswerCallTimeout?: number;
+  fulfillEndCallTimeout?: number;
 }> = (
   config,
-  { incomingCallTimeout, outgoingCallTimeout, fulfillAnswerCallTimeout },
+  {
+    incomingCallTimeout,
+    outgoingCallTimeout,
+    fulfillAnswerCallTimeout,
+    fulfillEndCallTimeout,
+  },
 ) => {
   return withAndroidManifest(config, (config) => {
     const app = AndroidConfig.Manifest.getMainApplicationOrThrow(
@@ -83,6 +90,12 @@ const withTimeouts: ConfigPlugin<{
       app,
       "ExpoCallKitTelecomFulfillAnswerCallTimeout",
       String(fulfillAnswerCallTimeout ?? DEFAULT_FULFILL_ANSWER_CALL_TIMEOUT),
+    );
+
+    setMetaDataValue(
+      app,
+      "ExpoCallKitTelecomFulfillEndCallTimeout",
+      String(fulfillEndCallTimeout ?? DEFAULT_FULFILL_END_CALL_TIMEOUT),
     );
 
     return config;

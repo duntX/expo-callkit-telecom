@@ -90,12 +90,19 @@ class CallManager private constructor() {
         var timeoutJob: Job? = null,
     )
 
+    private data class EndCallCompletion(
+        val reportedReason: CallEndedReason?,
+        val sendDisconnect: Boolean,
+    )
+
     /** Active call controllers, keyed by call UUID. */
     private val activeCalls = ConcurrentHashMap<UUID, CallController>()
+    private val pendingEndCompletions = ConcurrentHashMap<UUID, EndCallCompletion>()
 
     private var incomingCallTimeoutMs = 45_000L
     private var outgoingCallTimeoutMs = 60_000L
     private var fulfillAnswerTimeoutMs = 30_000L
+    private var fulfillEndTimeoutMs = 5_000L
 
     /** Initializes Core-Telecom CallsManager + dependent managers. Safe to call repeatedly. */
     fun initialize(appContext: Context) {
@@ -129,6 +136,8 @@ class CallManager private constructor() {
             readTimeoutMs("ExpoCallKitTelecomOutgoingCallTimeout", outgoingCallTimeoutMs)
         fulfillAnswerTimeoutMs =
             readTimeoutMs("ExpoCallKitTelecomFulfillAnswerCallTimeout", fulfillAnswerTimeoutMs)
+        fulfillEndTimeoutMs =
+            readTimeoutMs("ExpoCallKitTelecomFulfillEndCallTimeout", fulfillEndTimeoutMs)
 
         CallAudioManager.initialize(context)
         CallAudioManager.onRequestEndpointChange = { endpoint ->
@@ -431,6 +440,16 @@ class CallManager private constructor() {
         return true
     }
 
+    /**
+     * Fulfills pending end-call cleanup after JS finishes teardown/reporting.
+     *
+     * @return `true` if request existed and cleanup continued, `false` otherwise.
+     */
+    fun fulfillCallEnded(requestId: UUID): Boolean {
+        val callId = FulfillRequestManager.fulfill(requestId) ?: return false
+        return completePendingEndCall(callId)
+    }
+
     /** Reports outgoing media is connected and sets call state to connected. */
     fun reportOutgoingCallConnected(id: UUID) {
         CallKitTelecomLog.d(TAG) { "Reporting outgoing call connected - id: $id" }
@@ -483,6 +502,59 @@ class CallManager private constructor() {
         cancelCallTimeout(id)
         FulfillRequestManager.cancelForCall(id)
 
+        if (emitEnded) {
+            val endReason = callEndedEventReason(existingSession)
+
+            if (existingSession.status != CallSessionStatus.ENDED) {
+                CallStore.updateStatus(id, CallSessionStatus.ENDED)
+            }
+
+            val endedSession =
+                CallStore.session(id) ?: existingSession.copy(status = CallSessionStatus.ENDED)
+
+            pendingEndCompletions[id] =
+                EndCallCompletion(reportedReason = reportedReason, sendDisconnect = sendDisconnect)
+
+            val request =
+                FulfillRequestManager.createRequest(callId = id, timeoutMs = fulfillEndTimeoutMs) {
+                    completePendingEndCall(it)
+                }
+
+            val deliveredToJS =
+                CallEventEmitter.send(
+                    CallEvents.CALL_ENDED,
+                    sessionEventBody(
+                        endedSession,
+                        "reason" to endReason,
+                        "requestId" to request.requestId.toString(),
+                    ),
+                )
+
+            if (deliveredToJS) {
+                CallKitTelecomLog.d(TAG) {
+                    "Waiting for JS end-call fulfill - id: $id, requestId: ${request.requestId}"
+                }
+                return
+            }
+
+            FulfillRequestManager.cancel(request.requestId)
+        }
+
+        completeFinishCall(
+            id,
+            EndCallCompletion(reportedReason = reportedReason, sendDisconnect = sendDisconnect),
+        )
+    }
+
+    private fun completePendingEndCall(id: UUID): Boolean {
+        val completion = pendingEndCompletions.remove(id) ?: return false
+        completeFinishCall(id, completion)
+        return true
+    }
+
+    private fun completeFinishCall(id: UUID, completion: EndCallCompletion) {
+        pendingEndCompletions.remove(id)
+        val existingSession = CallStore.session(id) ?: return
         val callerName = existingSession.remoteParticipants.firstOrNull()?.displayName
         CallNotificationManager.showEndedCall(context, id, callerName)
 
@@ -490,8 +562,14 @@ class CallManager private constructor() {
         // Don't cancel the job — let disconnect() cause addCall to return naturally
         // so the DisconnectCause is properly delivered to the Telecom framework.
         // The finally block provides safety-net cleanup if needed.
-        if (sendDisconnect) {
-            activeCalls.remove(id)?.actions?.disconnect?.trySend(disconnectCauseFor(reportedReason))
+        if (completion.sendDisconnect) {
+            activeCalls
+                .remove(id)
+                ?.actions
+                ?.disconnect
+                ?.trySend(disconnectCauseFor(completion.reportedReason))
+        } else {
+            activeCalls.remove(id)
         }
 
         if (existingSession.status != CallSessionStatus.ENDED) {
@@ -502,14 +580,10 @@ class CallManager private constructor() {
         // embedded session reflects the terminal state. Read before remove().
         val endedSession = CallStore.session(id) ?: existingSession
 
-        if (emitEnded) {
-            CallEventEmitter.send(CallEvents.CALL_ENDED, sessionEventBody(endedSession))
-        }
-
-        if (reportedReason != null) {
+        if (completion.reportedReason != null) {
             CallEventEmitter.send(
                 CallEvents.CALL_REPORTED_ENDED,
-                sessionEventBody(endedSession, "reason" to reportedReason.value),
+                sessionEventBody(endedSession, "reason" to completion.reportedReason.value),
             )
         }
 
@@ -521,7 +595,7 @@ class CallManager private constructor() {
         }
 
         CallKitTelecomLog.d(TAG) {
-            "Call finished - id: $id, emitEnded: $emitEnded, reason: ${reportedReason?.value}"
+            "Call finished - id: $id, reason: ${completion.reportedReason?.value}"
         }
     }
 
@@ -548,7 +622,13 @@ class CallManager private constructor() {
      * exception or cancellation.
      */
     private fun cleanupCallIfNeeded(id: UUID) {
+        if (pendingEndCompletions.containsKey(id)) {
+            CallKitTelecomLog.d(TAG) { "End-call cleanup pending JS fulfill - id: $id" }
+            return
+        }
+
         activeCalls.remove(id)
+        pendingEndCompletions.remove(id)
 
         val session = CallStore.session(id) ?: return
         CallKitTelecomLog.w(TAG) {
@@ -564,13 +644,26 @@ class CallManager private constructor() {
         }
         // Read the just-updated session back from the store (the source of truth). Before remove().
         val endedSession = CallStore.session(id) ?: session
-        CallEventEmitter.send(CallEvents.CALL_ENDED, sessionEventBody(endedSession))
+        CallEventEmitter.send(
+            CallEvents.CALL_ENDED,
+            sessionEventBody(endedSession, "reason" to callEndedEventReason(session)),
+        )
         CallStore.remove(id)
 
         if (CallStore.allSessions().isEmpty()) {
             CallAudioManager.onAudioDeactivated(emptyList())
         }
     }
+
+    /** Infers why a local/system end event happened from the pre-ended session state. */
+    private fun callEndedEventReason(session: CallSession): String =
+        when {
+            session.origin == CallSessionOrigin.INCOMING &&
+                session.status == CallSessionStatus.RINGING -> "declined"
+            session.status == CallSessionStatus.CONNECTING ||
+                session.status == CallSessionStatus.CONNECTED -> "localEnded"
+            else -> "systemEnded"
+        }
 
     /** Maps shared end reasons to Android `DisconnectCause`. */
     private fun disconnectCauseFor(reason: CallEndedReason?): DisconnectCause =

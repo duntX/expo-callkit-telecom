@@ -57,6 +57,7 @@ With custom ringtone and dialtone:
           "outgoingCallTimeout": 60,
           "fulfillAnswerCallTimeout": 30,
           "includesCallsInRecents": true,
+          "fulfillEndCallTimeout": 5,
           "microphonePermission": "$(PRODUCT_NAME) needs the microphone to make calls."
         }
       ]
@@ -75,7 +76,7 @@ The TypeScript API is organised into three verbs:
 | ------------ | ---------------------- | --------------------------------------------------------------------- |
 | **Request**  | App → System           | `startOutgoingCall`, `answerCall`, `endCall`, `setMuted`              |
 | **Report**   | App → System (state)   | `reportIncomingCall`, `reportOutgoingCallConnected`, `reportCallEnded` |
-| **Fulfill**  | App → System (ack)     | `fulfillIncomingCallConnected`                                        |
+| **Fulfill**  | App → System (ack)     | `fulfillIncomingCallConnected`, `fulfillCallEnded`                    |
 
 Events flow the other way (System → App) via `addXxxListener`.
 

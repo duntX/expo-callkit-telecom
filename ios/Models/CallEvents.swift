@@ -159,11 +159,22 @@ struct CallEndedEvent: CallEvent {
   static let name = "onCallEnded"
 
   let id: UUID
+  let reason: Reason
+  let requestId: UUID
   let session: CallSession
+
+  enum Reason: String {
+    case declined
+    case localEnded
+    case systemEnded
+    case unknown
+  }
 
   var body: [String: Any] {
     [
       CallEventKeys.id: id.uuidString,
+      "reason": reason.rawValue,
+      "requestId": requestId.uuidString,
       "session": session.toDictionary(),
     ]
   }
