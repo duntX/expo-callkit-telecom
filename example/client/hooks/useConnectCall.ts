@@ -3,6 +3,7 @@ import {
   addCallEndedListener,
   addOutgoingCallStartedListener,
   failIncomingCallConnected,
+  fulfillCallEnded,
   fulfillIncomingCallConnected,
   reportCallEnded,
   reportOutgoingCallConnected,
@@ -40,13 +41,16 @@ export function useConnectCall(): {
       addCallAnsweredListener(({ id, requestId }) =>
         setPending((p) => ({ ...p, incomingId: id, requestId })),
       ),
-      addCallEndedListener(({ id }) =>
+      addCallEndedListener(({ id, requestId }) => {
         setPending((p) => ({
           outgoingId: p.outgoingId === id ? undefined : p.outgoingId,
           incomingId: p.incomingId === id ? undefined : p.incomingId,
           requestId: p.incomingId === id ? undefined : p.requestId,
-        })),
-      ),
+        }));
+        if (requestId) {
+          fulfillCallEnded(requestId).catch(() => {});
+        }
+      }),
     ];
     return () => subs.forEach((s) => s.remove());
   }, []);

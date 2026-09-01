@@ -2,6 +2,7 @@
 export const DEFAULT_INCOMING_CALL_TIMEOUT = 45;
 export const DEFAULT_OUTGOING_CALL_TIMEOUT = 60;
 export const DEFAULT_FULFILL_ANSWER_CALL_TIMEOUT = 30;
+export const DEFAULT_FULFILL_END_CALL_TIMEOUT = 5;
 
 /**
  * Action for the package-internal call-event broadcast (Android). The

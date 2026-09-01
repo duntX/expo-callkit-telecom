@@ -299,6 +299,11 @@ class ExpoCallKitTelecomModule : Module() {
         // Ends an active call.
         AsyncFunction("endCall") { id: String -> CallManager.shared.endCall(UUID.fromString(id)) }
 
+        // Fulfills pending end-call cleanup once JS teardown/reporting is complete.
+        AsyncFunction("fulfillCallEnded") { requestId: String ->
+            CallManager.shared.fulfillCallEnded(UUID.fromString(requestId))
+        }
+
         // Reports an externally-ended call with explicit reason.
         AsyncFunction("reportCallEnded") { id: String, reason: String ->
             CallManager.shared.reportCallEnded(

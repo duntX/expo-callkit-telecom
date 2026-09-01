@@ -383,11 +383,28 @@ export interface CallAnsweredEvent extends CallActionEvent {
 }
 
 /**
- * Fired when the user ends a call from the system UI, or the OS ends the call for any reason.
+ * Reason inferred for a local/system call-end action.
  *
  * @category Call Events
  */
-export interface CallEndedEvent extends CallActionEvent, WithSession {}
+export type CallEndedEventReason =
+  | "declined"
+  | "localEnded"
+  | "systemEnded"
+  | "unknown";
+
+/**
+ * Fired when the user ends a call from the system UI, or the OS ends the call for any reason.
+ *
+ * If `requestId` is present, perform any asynchronous teardown/reporting and
+ * call `fulfillCallEnded(requestId)` in a `finally` block.
+ *
+ * @category Call Events
+ */
+export interface CallEndedEvent extends CallActionEvent, WithSession {
+  reason: CallEndedEventReason;
+  requestId?: string;
+}
 
 /**
  * Reason a call was ended, reported on {@link CallReportedEnded}.

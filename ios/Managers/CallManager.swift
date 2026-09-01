@@ -570,6 +570,21 @@ class CallManager: NSObject {
     }
   }
 
+  /// Fulfills pending end-call cleanup after JS finishes teardown/reporting.
+  ///
+  /// - Parameter requestId: The request ID emitted with `onCallEnded`.
+  /// - Returns: Whether the request was successfully fulfilled.
+  @discardableResult
+  func fulfillCallEnded(requestId: UUID) async -> Bool {
+    guard let callId = await FulfillRequestManager.shared.fulfill(requestId: requestId) else {
+      Log.call.debug("End call fulfill ignored - requestId: \(requestId)")
+      return false
+    }
+
+    Log.call.debug("End call fulfilled by JS - id: \(callId), requestId: \(requestId)")
+    return true
+  }
+
   /// Reports to CallKit that a call has ended.
   ///
   /// Call this when a call ends for any reason not initiated by the local user

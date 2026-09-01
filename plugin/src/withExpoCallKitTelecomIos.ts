@@ -10,6 +10,7 @@ import { basename, resolve } from "path";
 
 import {
   DEFAULT_FULFILL_ANSWER_CALL_TIMEOUT,
+  DEFAULT_FULFILL_END_CALL_TIMEOUT,
   DEFAULT_INCOMING_CALL_TIMEOUT,
   DEFAULT_OUTGOING_CALL_TIMEOUT,
 } from "./constants";
@@ -107,9 +108,15 @@ const withTimeouts: ConfigPlugin<{
   incomingCallTimeout?: number;
   outgoingCallTimeout?: number;
   fulfillAnswerCallTimeout?: number;
+  fulfillEndCallTimeout?: number;
 }> = (
   config,
-  { incomingCallTimeout, outgoingCallTimeout, fulfillAnswerCallTimeout },
+  {
+    incomingCallTimeout,
+    outgoingCallTimeout,
+    fulfillAnswerCallTimeout,
+    fulfillEndCallTimeout,
+  },
 ) => {
   return withInfoPlist(config, (config) => {
     config.modResults.ExpoCallKitTelecomIncomingCallTimeout =
@@ -118,6 +125,8 @@ const withTimeouts: ConfigPlugin<{
       outgoingCallTimeout ?? DEFAULT_OUTGOING_CALL_TIMEOUT;
     config.modResults.ExpoCallKitTelecomFulfillAnswerCallTimeout =
       fulfillAnswerCallTimeout ?? DEFAULT_FULFILL_ANSWER_CALL_TIMEOUT;
+    config.modResults.ExpoCallKitTelecomFulfillEndCallTimeout =
+      fulfillEndCallTimeout ?? DEFAULT_FULFILL_END_CALL_TIMEOUT;
     return config;
   });
 };
@@ -251,6 +260,7 @@ export const withExpoCallKitTelecomIos: ConfigPlugin<ExpoCallKitTelecomPluginPro
     incomingCallTimeout,
     outgoingCallTimeout,
     fulfillAnswerCallTimeout,
+    fulfillEndCallTimeout,
     sounds,
     defaultRingtoneIos,
     defaultDialtone,
@@ -264,6 +274,7 @@ export const withExpoCallKitTelecomIos: ConfigPlugin<ExpoCallKitTelecomPluginPro
     incomingCallTimeout,
     outgoingCallTimeout,
     fulfillAnswerCallTimeout,
+    fulfillEndCallTimeout,
   });
   config = withSounds(config, { sounds });
   config = withDefaultRingtone(config, {

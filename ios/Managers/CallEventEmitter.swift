@@ -97,7 +97,10 @@ final class CallEventEmitter {
   // MARK: - Public API
 
   /// Send a type-safe event to JS, or buffer it if JS isn't listening yet.
-  func send<E: CallEvent>(_ event: E) {
+  ///
+  /// - Returns: `true` when delivered to a live JS observer, otherwise `false`.
+  @discardableResult
+  func send<E: CallEvent>(_ event: E) -> Bool {
     let eventName = E.name
     let timestamp = Date()
 
@@ -109,8 +112,10 @@ final class CallEventEmitter {
         timestamp: timestamp
       )
       module.sendEvent(eventName, body)
+      return true
     } else {
       queueEvent(name: eventName, body: event.body, timestamp: timestamp)
+      return false
     }
   }
 

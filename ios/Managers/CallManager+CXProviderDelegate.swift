@@ -13,6 +13,15 @@ extension CallManager: CXProviderDelegate {
     return .seconds(seconds)
   }()
 
+  /// Timeout for waiting for JS cleanup after ending/declining a call.
+  private static let endCallTimeout: Duration = {
+    let seconds =
+      Bundle.main.object(
+        forInfoDictionaryKey: "ExpoCallKitTelecomFulfillEndCallTimeout"
+      ) as? Int ?? 5
+    return .seconds(seconds)
+  }()
+
   // MARK: - providerDidReset
 
   func providerDidReset(_ provider: CXProvider) {
@@ -110,17 +119,55 @@ extension CallManager: CXProviderDelegate {
     Task {
       // Snapshot the session as ended so the embedded session reflects the terminal state.
       if var session = await store.session(for: action.callUUID) {
+        let reason = callEndedReason(for: session)
         session.status = .ended
-        await MainActor.run {
+
+        let (requestId, resultTask) = await FulfillRequestManager.shared.createRequest(
+          callId: action.callUUID,
+          timeout: Self.endCallTimeout
+        )
+
+        let deliveredToJS = await MainActor.run {
           CallEventEmitter.shared.send(
-            CallEndedEvent(id: action.callUUID, session: session))
+            CallEndedEvent(
+              id: action.callUUID,
+              reason: reason,
+              requestId: requestId,
+              session: session
+            ))
+        }
+
+        if deliveredToJS {
+          let result = await resultTask.value
+          switch result {
+          case .fulfilled:
+            Log.call.debug("CXEndCallAction JS cleanup fulfilled - id: \(action.callUUID)")
+          case .cancelled:
+            Log.call.debug("CXEndCallAction JS cleanup cancelled - id: \(action.callUUID)")
+          case .timedOut:
+            Log.call.debug("CXEndCallAction JS cleanup timed out - id: \(action.callUUID)")
+          }
+        } else {
+          await FulfillRequestManager.shared.cancel(requestId: requestId)
         }
       }
 
       await store.remove(for: action.callUUID)
+      action.fulfill()
+    }
+  }
+
+  private func callEndedReason(for session: CallSession) -> CallEndedEvent.Reason {
+    if session.origin == .incoming, session.status == .ringing {
+      return .declined
     }
 
-    action.fulfill()
+    switch session.status {
+    case .connecting, .connected:
+      return .localEnded
+    case .requesting, .ringing, .ended:
+      return .systemEnded
+    }
   }
 
   // MARK: - CXSetMutedCallAction

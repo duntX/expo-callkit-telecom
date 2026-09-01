@@ -28,6 +28,7 @@
  * (via event listeners), your app must perform the action and then call the corresponding
  * fulfiller to confirm completion:
  * - {@link fulfillIncomingCallConnected} - Confirm that incoming call media is connected
+ * - {@link fulfillCallEnded} - Confirm that call-end cleanup/reporting is complete
  *
  * ## Typical Flow
  *
@@ -45,7 +46,8 @@
  * 5. Call {@link fulfillIncomingCallConnected} when media is ready
  *
  * **Ending a Call:**
- * - If user ends: Call {@link endCall} and clean up media
+ * - If user ends: Call {@link endCall}; when {@link addCallEndedListener} fires,
+ *   clean up media and call {@link fulfillCallEnded} if the event includes a request ID
  * - If remote ends: Clean up media, then call {@link reportCallEnded}
  */
 
@@ -606,8 +608,10 @@ export async function endCall(id: string): Promise<void> {
 /**
  * Subscribes to call ended events.
  *
- * Fired when a call has ended (e.g., user pressed end button).
- * Clean up your media connection when you receive this event.
+ * Fired when a call has ended (e.g., user pressed end button or declined an
+ * incoming call). Clean up your media connection when you receive this event.
+ * If the event contains a `requestId`, call {@link fulfillCallEnded} in a
+ * `finally` block after your asynchronous cleanup/reporting finishes.
  *
  * @param listener - Callback invoked when a call ends.
  * @returns A subscription that can be removed by calling `.remove()`.
@@ -621,6 +625,21 @@ export function addCallEndedListener(
   listener: (event: CallEndedEvent) => void,
 ): EventSubscription {
   return ExpoCallKitTelecomModule.addListener("onCallEnded", listener);
+}
+
+/**
+ * Fulfills a pending call-end action after JS cleanup/reporting is complete.
+ *
+ * Call this from {@link addCallEndedListener} when the event includes a
+ * `requestId`. Native side has a timeout fallback, but apps should fulfill in
+ * `finally` so CallKit / Telecom can finish promptly.
+ *
+ * @param requestId - The request ID from the CallEndedEvent.
+ *
+ * @category Fulfillers
+ */
+export async function fulfillCallEnded(requestId: string): Promise<void> {
+  await ExpoCallKitTelecomModule.fulfillCallEnded(requestId);
 }
 
 /**

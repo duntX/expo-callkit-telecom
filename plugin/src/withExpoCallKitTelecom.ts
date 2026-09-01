@@ -37,6 +37,13 @@ export type ExpoCallKitTelecomPluginProps = {
    */
   fulfillAnswerCallTimeout?: number;
   /**
+   * Timeout in seconds for waiting for JS cleanup after ending or declining a call.
+   * @default 5
+   * @platform ios
+   * @platform android
+   */
+  fulfillEndCallTimeout?: number;
+  /**
    * Array of sound file paths (relative to project root) to include in the app.
    * These files will be copied into the iOS bundle and Android raw resources.
    * .wav recommended
