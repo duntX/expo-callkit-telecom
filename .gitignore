@@ -79,3 +79,8 @@ docs/.vitepress/dist/
 .wrangler
 .dev.vars*
 !.dev.vars.example
+
+!/build/
+!/build/**
+!/plugin/build/
+!/plugin/build/**
