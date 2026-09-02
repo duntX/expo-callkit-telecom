@@ -58,11 +58,12 @@
   },
   "license": "MIT",
   "homepage": "https://expo-callkit-telecom.mfairley.com/",
-  "dependencies": {},
+  "dependencies": {
+    "expo-module-scripts": "^55.0.2"
+  },
   "devDependencies": {
     "@types/react": "~19.2.14",
     "expo": "^55.0.24",
-    "expo-module-scripts": "^55.0.2",
     "react": "19.2.0",
     "react-native": "0.83.6",
     "typedoc": "^0.28.19",
