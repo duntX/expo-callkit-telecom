@@ -58,7 +58,7 @@ extension CallManager: CXProviderDelegate {
 
       await store.updateStatus(for: action.callUUID, status: .connecting)
 
-      await MainActor.run {
+      _ = await MainActor.run {
         CallEventEmitter.shared.send(OutgoingCallStartedEvent(id: action.callUUID))
       }
     }
@@ -84,7 +84,7 @@ extension CallManager: CXProviderDelegate {
       )
 
       // Send event with request ID
-      await MainActor.run {
+      _ = await MainActor.run {
         CallEventEmitter.shared.send(
           CallAnsweredEvent(id: action.callUUID, requestId: requestId)
         )
@@ -121,6 +121,7 @@ extension CallManager: CXProviderDelegate {
       if var session = await store.session(for: action.callUUID) {
         let reason = callEndedReason(for: session)
         session.status = .ended
+        let endedSession = session
 
         let (requestId, resultTask) = await FulfillRequestManager.shared.createRequest(
           callId: action.callUUID,
@@ -133,7 +134,7 @@ extension CallManager: CXProviderDelegate {
               id: action.callUUID,
               reason: reason,
               requestId: requestId,
-              session: session
+              session: endedSession
             ))
         }
 
@@ -178,7 +179,7 @@ extension CallManager: CXProviderDelegate {
     Task {
       await store.updateMuted(for: action.callUUID, isMuted: action.isMuted)
 
-      await MainActor.run {
+      _ = await MainActor.run {
         CallEventEmitter.shared.send(
           SetMutedActionEvent(id: action.callUUID, isMuted: action.isMuted))
       }
@@ -193,7 +194,8 @@ extension CallManager: CXProviderDelegate {
     Log.call.debug("CXSetHeldCallAction - id: \(action.callUUID), isOnHold: \(action.isOnHold)")
 
     Task {
-      if !action.isOnHold && await store.hasOtherNonHeldSession(action.callUUID) {
+      let hasOtherNonHeldSession = await store.hasOtherNonHeldSession(action.callUUID)
+      if !action.isOnHold && hasOtherNonHeldSession {
         Log.call.warning(
           "CXSetHeldCallAction rejected - another session is already not held: \(action.callUUID)")
         action.fail()
@@ -202,7 +204,7 @@ extension CallManager: CXProviderDelegate {
 
       await store.updateHeld(for: action.callUUID, isOnHold: action.isOnHold)
 
-      await MainActor.run {
+      _ = await MainActor.run {
         CallEventEmitter.shared.send(
           SetHeldActionEvent(id: action.callUUID, isOnHold: action.isOnHold))
       }
@@ -217,7 +219,7 @@ extension CallManager: CXProviderDelegate {
     Log.call.debug("CXPlayDTMFCallAction - id: \(action.callUUID), length: \(action.digits.count)")
 
     Task {
-      await MainActor.run {
+      _ = await MainActor.run {
         CallEventEmitter.shared.send(DTMFEvent(id: action.callUUID, digits: action.digits))
       }
     }

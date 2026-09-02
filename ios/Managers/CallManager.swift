@@ -24,10 +24,10 @@ class CallManager: NSObject {
   private let callController = CXCallController()
   private let provider: CXProvider
 
-  private let supportsHolding = true
-  private let supportsGrouping = false
-  private let supportsUngrouping = false
-  private let supportsDTMF = false
+  let supportsHolding = true
+  let supportsGrouping = false
+  let supportsUngrouping = false
+  let supportsDTMF = false
 
   /// Timeout duration for outgoing calls to connect.
   static let outgoingCallTimeout: Duration = {
@@ -338,7 +338,7 @@ class CallManager: NSObject {
       await store.add(session)
 
       // Notify JS that an incoming call has been reported to CallKit
-      await MainActor.run {
+      _ = await MainActor.run {
         CallEventEmitter.shared.send(IncomingCallReportedEvent(id: id))
       }
 
@@ -433,7 +433,7 @@ class CallManager: NSObject {
       Task {
         await self?.store.add(session)
 
-        await MainActor.run {
+        _ = await MainActor.run {
           CallEventEmitter.shared.send(IncomingCallReportedEvent(id: id))
         }
 
@@ -607,9 +607,10 @@ class CallManager: NSObject {
     // Snapshot the session as ended so the embedded session reflects the terminal state.
     if var session = await store.session(for: id) {
       session.status = .ended
-      await MainActor.run {
+      let endedSession = session
+      _ = await MainActor.run {
         CallEventEmitter.shared.send(
-          CallReportedEnded(id: id, reason: reason, session: session))
+          CallReportedEnded(id: id, reason: reason, session: endedSession))
       }
     }
 
@@ -680,7 +681,7 @@ class CallManager: NSObject {
     update.hasVideo = enabled
     provider.reportCall(with: id, updated: update)
 
-    await MainActor.run {
+    _ = await MainActor.run {
       CallEventEmitter.shared.send(VideoChangedEvent(id: id, hasVideo: enabled))
     }
   }
@@ -698,7 +699,8 @@ class CallManager: NSObject {
   /// - Throws: An error if CallKit rejects the hold request.
   func setHeld(for id: UUID, onHold: Bool) async throws {
     Log.call.debug("Setting hold state - id: \(id), onHold: \(onHold)")
-    if !onHold && await store.hasOtherNonHeldSession(id) {
+    let hasOtherNonHeldSession = await store.hasOtherNonHeldSession(id)
+    if !onHold && hasOtherNonHeldSession {
       Log.call.warning("Cannot unhold call - another session is already not held: \(id)")
       throw CallError.sessionAlreadyExists
     }
