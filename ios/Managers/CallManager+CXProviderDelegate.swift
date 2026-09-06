@@ -31,6 +31,7 @@ extension CallManager: CXProviderDelegate {
     Task {
       await FulfillRequestManager.shared.cancelAll()
       await store.removeAll()
+      AudioManager.shared.onAVAudioSessionDeactivated(calls: [])
     }
   }
 
@@ -154,6 +155,8 @@ extension CallManager: CXProviderDelegate {
       }
 
       await store.remove(for: action.callUUID)
+      let remainingCalls = await store.allSessions
+      AudioManager.shared.restoreAudioSessionIfIdle(calls: remainingCalls)
       action.fulfill()
     }
   }

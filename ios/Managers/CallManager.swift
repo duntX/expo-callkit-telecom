@@ -618,6 +618,8 @@ class CallManager: NSObject {
     }
 
     await store.remove(for: id)
+    let remainingCalls = await store.allSessions
+    AudioManager.shared.restoreAudioSessionIfIdle(calls: remainingCalls)
   }
 
   // MARK: - Mute Support

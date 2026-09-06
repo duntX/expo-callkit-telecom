@@ -288,13 +288,23 @@ final class AudioManager {
     savedConfig = nil
   }
 
+  /// Finish restoration when the last call ends while audio is already inactive.
+  func restoreAudioSessionIfIdle(calls: [CallSession]) {
+    guard calls.isEmpty, !isActive else { return }
+    restoreAudioSession()
+  }
+
   // MARK: - CallKit Audio Session Callbacks
 
   /// Called when CallKit activates the audio session.
-  /// This happens after the user answers a call or starts an outgoing call.
-  /// Audio session should already be configured via prepareAudioSessionForCall() before this is called.
+  /// This also happens when CallKit resumes audio after a hold or interruption.
   /// - Parameter calls: The current active call sessions.
   func onAVAudioSessionActivated(calls: [CallSession]) {
+    // Reapply the call configuration before restarting the WebRTC audio unit.
+    if let call = calls.first(where: { !$0.isOnHold }) ?? calls.first {
+      setRTCAudioSessionConfiguration(hasVideo: call.options.hasVideo)
+      prepareAudioSessionForCall(hasVideo: call.options.hasVideo)
+    }
     isActive = true
 
     let session = RTCAudioSession.sharedInstance()
@@ -305,7 +315,7 @@ final class AudioManager {
     // Enable the audio unit for VOIP processing (required with useManualAudio = true)
     session.isAudioEnabled = true
 
-    Log.audio.debug("RTC audio session activated")
+    Log.audio.debug("RTC audio session activated - enabled: \(session.isAudioEnabled), active: \(session.isActive), calls: \(calls.count)")
 
     Task { @MainActor in
       let callInfos = calls.map { AudioSessionCallInfo(from: $0) }
@@ -314,7 +324,7 @@ final class AudioManager {
   }
 
   /// Called when CallKit deactivates the audio session.
-  /// This happens when the call ends.
+  /// This can happen during hold or interruption as well as when a call ends.
   /// - Parameter calls: The call sessions that were active when deactivation occurred.
   func onAVAudioSessionDeactivated(calls: [CallSession]) {
     isActive = false
@@ -326,10 +336,10 @@ final class AudioManager {
     // Notify WebRTC that CallKit deactivated the audio session
     rtcSession.audioSessionDidDeactivate(AVAudioSession.sharedInstance())
 
-    // Restore the audio session configuration from before the call
-    restoreAudioSession()
+    // A held call still owns its saved configuration for the eventual resume.
+    restoreAudioSessionIfIdle(calls: calls)
 
-    Log.audio.debug("RTC audio session deactivated")
+    Log.audio.debug("RTC audio session deactivated - enabled: \(rtcSession.isAudioEnabled), active: \(rtcSession.isActive), calls: \(calls.count)")
 
     Task { @MainActor in
       let callInfos = calls.map { AudioSessionCallInfo(from: $0) }
