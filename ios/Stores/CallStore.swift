@@ -21,18 +21,13 @@ actor CallStore {
     sessions.values.first { !$0.isOnHold }
   }
 
-  /// Whether a new non-held call may be created.
-  var canStartNewSession: Bool {
-    sessions.count < 2 && !sessions.values.contains { !$0.isOnHold }
-  }
-
-  /// Whether a new incoming call may be reported/displayed.
+  /// Whether a new call session (incoming or outgoing) may be created.
   ///
-  /// Unlike `canStartNewSession`, this does not require existing sessions to
-  /// already be held — CallKit/Telecom can display UI for a second incoming
-  /// call while the first is still active. Holding the first call is only
-  /// required when the second call is answered.
-  var canReportNewIncomingCall: Bool {
+  /// This does not require existing sessions to already be held — CallKit/Telecom
+  /// can display UI for a second call (incoming or outgoing) while the first is
+  /// still active. Holding the first call is only required when the second call
+  /// is answered/connected, and is left to the app to request via `setHeld`.
+  var canStartNewSession: Bool {
     sessions.count < 2
   }
 

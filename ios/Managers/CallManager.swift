@@ -218,7 +218,7 @@ class CallManager: NSObject {
   ) async throws -> UUID {
     let canStartSession = await store.canStartNewSession
     if !canStartSession {
-      Log.call.warning("Cannot start outgoing call - max sessions reached or a session is not held")
+      Log.call.warning("Cannot start outgoing call - max sessions reached")
       throw CallError.sessionAlreadyExists
     }
 
@@ -282,8 +282,8 @@ class CallManager: NSObject {
   /// - Parameter event: The incoming call event containing caller info.
   /// - Throws: An error if CallKit rejects the incoming call report.
   func reportIncomingCall(event: IncomingCallEvent) async throws {
-    let canReportSession = await store.canReportNewIncomingCall
-    if !canReportSession {
+    let canStartSession = await store.canStartNewSession
+    if !canStartSession {
       Log.call.warning("Cannot report incoming call - max sessions reached")
       throw CallError.sessionAlreadyExists
     }
@@ -366,8 +366,8 @@ class CallManager: NSObject {
   ///   - completion: Called when the CallKit report completes (success or failure).
   func reportIncomingCall(event: IncomingCallEvent, completion: @escaping (Error?) -> Void) {
     Task {
-      let canReportSession = await store.canReportNewIncomingCall
-      guard canReportSession else {
+      let canStartSession = await store.canStartNewSession
+      guard canStartSession else {
         Log.call.warning("Cannot report incoming call - max sessions reached")
         completion(CallError.sessionAlreadyExists)
         return
