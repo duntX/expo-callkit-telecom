@@ -26,6 +26,16 @@ actor CallStore {
     sessions.count < 2 && !sessions.values.contains { !$0.isOnHold }
   }
 
+  /// Whether a new incoming call may be reported/displayed.
+  ///
+  /// Unlike `canStartNewSession`, this does not require existing sessions to
+  /// already be held — CallKit/Telecom can display UI for a second incoming
+  /// call while the first is still active. Holding the first call is only
+  /// required when the second call is answered.
+  var canReportNewIncomingCall: Bool {
+    sessions.count < 2
+  }
+
   /// Whether another session is currently not held.
   func hasOtherNonHeldSession(_ id: UUID) -> Bool {
     sessions.values.contains { $0.id != id && !$0.isOnHold }
