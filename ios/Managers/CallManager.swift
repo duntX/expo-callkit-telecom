@@ -24,6 +24,10 @@ class CallManager: NSObject {
   private let callController = CXCallController()
   private let provider: CXProvider
 
+  // Accessed on the provider's main delegate queue. Keep audio transitions in
+  // callback order even when reading the actor-backed store suspends a task.
+  var audioCallbackTask: Task<Void, Never>?
+
   let supportsHolding = true
   let supportsGrouping = false
   let supportsUngrouping = false

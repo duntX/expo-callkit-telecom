@@ -28,7 +28,9 @@ extension CallManager: CXProviderDelegate {
     Log.call.debug("Provider did reset - removing all sessions")
     DialtonePlayer.shared.stop()
     cancelAllCallTimeouts()
-    Task {
+    let previous = audioCallbackTask
+    audioCallbackTask = Task { @MainActor in
+      await previous?.value
       await FulfillRequestManager.shared.cancelAll()
       await store.removeAll()
       AudioManager.shared.onAVAudioSessionDeactivated(calls: [])
@@ -123,6 +125,7 @@ extension CallManager: CXProviderDelegate {
         let reason = callEndedReason(for: session)
         session.status = .ended
         let endedSession = session
+        await store.updateStatus(for: action.callUUID, status: .ended)
 
         let (requestId, resultTask) = await FulfillRequestManager.shared.createRequest(
           callId: action.callUUID,
@@ -197,14 +200,9 @@ extension CallManager: CXProviderDelegate {
     Log.call.debug("CXSetHeldCallAction - id: \(action.callUUID), isOnHold: \(action.isOnHold)")
 
     Task {
-      let hasOtherNonHeldSession = await store.hasOtherNonHeldSession(action.callUUID)
-      if !action.isOnHold && hasOtherNonHeldSession {
-        Log.call.warning(
-          "CXSetHeldCallAction rejected - another session is already not held: \(action.callUUID)")
-        action.fail()
-        return
-      }
-
+      // CallKit has already accepted this action. During a swap or end-and-resume,
+      // the other call's asynchronous store update may not have completed yet.
+      // Do not reject a system resume based on that transient local state.
       await store.updateHeld(for: action.callUUID, isOnHold: action.isOnHold)
 
       _ = await MainActor.run {
@@ -235,7 +233,9 @@ extension CallManager: CXProviderDelegate {
   func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
     Log.call.debug("CallKit audio session activated")
 
-    Task {
+    let previous = audioCallbackTask
+    audioCallbackTask = Task { @MainActor in
+      await previous?.value
       let sessions = await store.allSessions
       AudioManager.shared.onAVAudioSessionActivated(calls: sessions)
 
@@ -255,7 +255,9 @@ extension CallManager: CXProviderDelegate {
     Log.call.debug("CallKit audio session deactivated")
     DialtonePlayer.shared.stop()
 
-    Task {
+    let previous = audioCallbackTask
+    audioCallbackTask = Task { @MainActor in
+      await previous?.value
       let sessions = await store.allSessions
       AudioManager.shared.onAVAudioSessionDeactivated(calls: sessions)
     }

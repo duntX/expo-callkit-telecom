@@ -296,7 +296,10 @@ export function addAudioSessionActivatedListener(
 /**
  * Subscribes to audio session deactivated events.
  *
- * Fired when the audio session is deactivated after a call ends.
+ * Fired when the shared audio session is deactivated, including during hold
+ * or interruption. This does not mean that a call ended; keep held media
+ * connections available for resume. On iOS, this module manages WebRTC audio
+ * activation, so do not stop LiveKit's global AudioSession in this listener.
  *
  * @param listener - Callback invoked when audio session deactivates.
  * @returns A subscription that can be removed by calling `.remove()`.
@@ -795,6 +798,10 @@ export async function setHeld(id: string, onHold: boolean): Promise<void> {
  *
  * Fired when the system requests to set the hold state. Apply the change to
  * your media connection when you receive this event.
+ * This also fires for the native iOS Hold & Accept UI without calling `setHeld`.
+ * Hold/resume only the media connection identified by the event's `id`,
+ * preserving its previous mute state. Do not stop the shared audio session
+ * or disconnect the held call.
  *
  * @param listener - Callback invoked when set held action is requested.
  * @returns A subscription that can be removed by calling `.remove()`.

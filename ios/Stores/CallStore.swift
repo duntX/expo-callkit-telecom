@@ -34,7 +34,7 @@ actor CallStore {
 
   /// Whether another session is currently not held.
   func hasOtherNonHeldSession(_ id: UUID) -> Bool {
-    sessions.values.contains { $0.id != id && !$0.isOnHold }
+    sessions.values.contains { $0.id != id && !$0.isOnHold && $0.status != .ended }
   }
 
   /// All sessions in insertion order.
