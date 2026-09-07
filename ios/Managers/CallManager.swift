@@ -56,8 +56,9 @@ class CallManager: NSObject {
   private override init() {
     let configuration = CXProviderConfiguration()
     configuration.supportsVideo = true
-    configuration.maximumCallGroups = 1
-    configuration.maximumCallsPerCallGroup = 2
+    // Two independent calls (one active, one held), without conference calling.
+    configuration.maximumCallGroups = 2
+    configuration.maximumCallsPerCallGroup = 1
     configuration.supportedHandleTypes = [.phoneNumber, .generic]
     configuration.includesCallsInRecents =
       Bundle.main.object(
@@ -457,8 +458,16 @@ class CallManager: NSObject {
   /// - Throws: An error if CallKit rejects the answer request.
   func answerCall(for id: UUID) async throws {
     Log.call.debug("Answering call - id: \(id)")
-    let action = CXAnswerCallAction(call: id)
-    let transaction = CXTransaction(action: action)
+    let transaction = CXTransaction()
+    let sessions = await store.allSessions
+    for session in sessions where session.id != id && !session.isOnHold
+      && session.status == .connected
+    {
+      // Request hold with answer so CallKit can preserve the existing call.
+      // The provider delegate updates the store when the hold is performed.
+      transaction.addAction(CXSetHeldCallAction(call: session.id, onHold: true))
+    }
+    transaction.addAction(CXAnswerCallAction(call: id))
 
     do {
       try await withCheckedThrowingContinuation {

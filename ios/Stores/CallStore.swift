@@ -26,7 +26,8 @@ actor CallStore {
   /// This does not require existing sessions to already be held — CallKit/Telecom
   /// can display UI for a second call (incoming or outgoing) while the first is
   /// still active. Holding the first call is only required when the second call
-  /// is answered/connected, and is left to the app to request via `setHeld`.
+  /// is answered/connected. On iOS, `answerCall` requests holding a connected
+  /// call in the same transaction; the native UI manages its own hold/end choice.
   var canStartNewSession: Bool {
     sessions.count < 2
   }
