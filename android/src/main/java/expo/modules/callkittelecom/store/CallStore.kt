@@ -32,6 +32,18 @@ object CallStore {
     /** Returns all sessions in insertion order. */
     fun allSessions(): List<CallSession> = synchronized(lock) { sessions.values.toList() }
 
+    /**
+     * The session a single-session consumer (e.g. `getActiveCallSession`)
+     * should treat as "the" call: the most recently added session that isn't
+     * on hold. Falls back to the most recently added session overall if every
+     * session is currently on hold (e.g. transiently between hold actions, or
+     * before JS has held the other call).
+     */
+    fun activeSession(): CallSession? =
+        synchronized(lock) {
+            sessions.values.lastOrNull { !it.isOnHold } ?: sessions.values.lastOrNull()
+        }
+
     /** Returns a session by call UUID, or null if missing. */
     fun session(id: UUID): CallSession? = synchronized(lock) { sessions[id] }
 

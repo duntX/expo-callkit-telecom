@@ -3,12 +3,12 @@ import os
 
 /// Errors that can occur during call operations.
 enum CallError: LocalizedError {
-  case sessionAlreadyExists
+  case maxSessionsReached
 
   var errorDescription: String? {
     switch self {
-    case .sessionAlreadyExists:
-      return "A call session already exists"
+    case .maxSessionsReached:
+      return "Maximum number of concurrent call sessions reached"
     }
   }
 }
@@ -28,6 +28,11 @@ class CallManager: NSObject {
   private let supportsGrouping = false
   private let supportsUngrouping = false
   private let supportsDTMF = false
+
+  /// Maximum number of concurrent call sessions supported. Matches
+  /// `CXProviderConfiguration.maximumCallGroups`/`maximumCallsPerCallGroup`
+  /// (2 groups of 1 call each) set up below.
+  static let maxConcurrentSessions = 2
 
   /// Timeout duration for outgoing calls to connect.
   static let outgoingCallTimeout: Duration = {
@@ -56,7 +61,7 @@ class CallManager: NSObject {
   private override init() {
     let configuration = CXProviderConfiguration()
     configuration.supportsVideo = true
-    configuration.maximumCallGroups = 1
+    configuration.maximumCallGroups = 2
     configuration.maximumCallsPerCallGroup = 1
     configuration.supportedHandleTypes = [.phoneNumber, .generic]
     configuration.includesCallsInRecents =
@@ -216,10 +221,11 @@ class CallManager: NSObject {
     options: CallOptions,
     isAppInitiated: Bool = true
   ) async throws -> UUID {
-    // Guard against starting a new call while one is already active
-    if let existingSession = await store.firstSession {
-      Log.call.warning("Cannot start outgoing call - session already exists: \(existingSession.id)")
-      throw CallError.sessionAlreadyExists
+    // Guard against exceeding the maximum number of concurrent sessions
+    let sessionCount = await store.allSessions.count
+    if sessionCount >= Self.maxConcurrentSessions {
+      Log.call.warning("Cannot start outgoing call - max sessions reached")
+      throw CallError.maxSessionsReached
     }
 
     // Prepare audio session before starting the call
@@ -282,6 +288,13 @@ class CallManager: NSObject {
   /// - Parameter event: The incoming call event containing caller info.
   /// - Throws: An error if CallKit rejects the incoming call report.
   func reportIncomingCall(event: IncomingCallEvent) async throws {
+    // Guard against exceeding the maximum number of concurrent sessions
+    let sessionCount = await store.allSessions.count
+    if sessionCount >= Self.maxConcurrentSessions {
+      Log.call.warning("Cannot report incoming call - max sessions reached")
+      throw CallError.maxSessionsReached
+    }
+
     let id = UUID()
     Log.call.debug("Reporting incoming call - id: \(id)")
 

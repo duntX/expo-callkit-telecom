@@ -58,6 +58,9 @@ class CallManager private constructor() {
 
         /** Shared singleton instance used by module and notification receiver. */
         val shared = CallManager()
+
+        /** Maximum number of concurrent call sessions supported. */
+        const val MAX_CONCURRENT_SESSIONS = 2
     }
 
     private lateinit var context: Context
@@ -141,7 +144,7 @@ class CallManager private constructor() {
 
         CallAudioManager.initialize(context)
         CallAudioManager.onRequestEndpointChange = { endpoint ->
-            val activeId = CallStore.firstSession()?.id
+            val activeId = CallStore.activeSession()?.id
             if (activeId != null) {
                 activeCalls[activeId]?.actions?.endpointChange?.trySend(endpoint)
             }
@@ -226,18 +229,15 @@ class CallManager private constructor() {
      * Starts a new outgoing call via Core-Telecom.
      *
      * Steps:
-     * - validates single-session constraint
+     * - validates the max concurrent session count
      * - creates/queues local session
      * - preps audio for call
      * - calls addCall with DIRECTION_OUTGOING
      */
     fun startOutgoingCall(recipient: CallParticipant, options: CallOptions): String {
-        val existingSession = CallStore.firstSession()
-        if (existingSession != null) {
-            CallKitTelecomLog.w(TAG) {
-                "Cannot start outgoing call - session already exists: ${existingSession.id}"
-            }
-            throw IllegalStateException("A call session already exists")
+        if (CallStore.allSessions().size >= MAX_CONCURRENT_SESSIONS) {
+            CallKitTelecomLog.w(TAG) { "Cannot start outgoing call - max sessions reached" }
+            throw IllegalStateException("Maximum number of concurrent call sessions reached")
         }
 
         val id = UUID.randomUUID()
@@ -318,19 +318,16 @@ class CallManager private constructor() {
      * Reports an incoming call via Core-Telecom.
      *
      * Steps:
-     * - validates single-session constraint
+     * - validates the max concurrent session count
      * - creates ringing session in store
      * - shows incoming call notification
      * - calls addCall with DIRECTION_INCOMING
      * - emits `onIncomingCallReported`
      */
     fun reportIncomingCall(event: IncomingCallEvent) {
-        val existingSession = CallStore.firstSession()
-        if (existingSession != null) {
-            CallKitTelecomLog.w(TAG) {
-                "Cannot report incoming call - session already exists: ${existingSession.id}"
-            }
-            throw IllegalStateException("A call session already exists")
+        if (CallStore.allSessions().size >= MAX_CONCURRENT_SESSIONS) {
+            CallKitTelecomLog.w(TAG) { "Cannot report incoming call - max sessions reached" }
+            throw IllegalStateException("Maximum number of concurrent call sessions reached")
         }
 
         val id = UUID.randomUUID()

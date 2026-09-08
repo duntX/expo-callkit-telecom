@@ -216,8 +216,11 @@ class ExpoCallKitTelecomModule : Module() {
 
         // region Call Session
 
-        // Returns the first active call session, if present.
-        AsyncFunction("getActiveCallSession") { CallStore.firstSession()?.toMap() }
+        // Returns the session that isn't on hold (most recently added if none/all are held).
+        AsyncFunction("getActiveCallSession") { CallStore.activeSession()?.toMap() }
+
+        // Returns every current call session, in insertion order.
+        AsyncFunction("getAllCallSessions") { CallStore.allSessions().map { it.toMap() } }
 
         // endregion
 

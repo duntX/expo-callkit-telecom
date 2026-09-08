@@ -111,9 +111,11 @@ extension VoIPPushManager: PKPushRegistryDelegate {
       if let error = error {
         Log.voipPush.error("Failed to report fallback incoming call: \(error.localizedDescription)")
       }
-      // Immediately end the call since it's invalid
+      // Immediately end the call since it's invalid. Use activeSession (most
+      // recently added) rather than firstSession, since another real call
+      // may already exist in the store when this fallback session is added.
       Task {
-        if let session = await CallManager.shared.store.firstSession {
+        if let session = await CallManager.shared.store.activeSession {
           await CallManager.shared.reportCallEnded(for: session.id, reason: .failed)
         }
       }

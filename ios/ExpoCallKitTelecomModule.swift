@@ -292,11 +292,15 @@ public class ExpoCallKitTelecomModule: Module {
     // MARK: - Call Session
 
     AsyncFunction("getActiveCallSession") { () -> [String: Any]? in
-      guard let session = await CallManager.shared.store.firstSession
+      guard let session = await CallManager.shared.store.activeSession
       else {
         return nil
       }
       return session.toDictionary()
+    }
+
+    AsyncFunction("getAllCallSessions") { () -> [[String: Any]] in
+      await CallManager.shared.store.allSessions.map { $0.toDictionary() }
     }
 
     // MARK: - Audio Session

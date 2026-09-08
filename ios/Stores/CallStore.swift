@@ -21,6 +21,15 @@ actor CallStore {
     Array(sessions.values)
   }
 
+  /// The session a single-session consumer (e.g. `getActiveCallSession`)
+  /// should treat as "the" call: the most recently added session that isn't
+  /// on hold. Falls back to the most recently added session overall if every
+  /// session is currently on hold (e.g. transiently between hold/answer
+  /// actions, or before JS has held the other call).
+  var activeSession: CallSession? {
+    sessions.values.last { !$0.isOnHold } ?? sessions.values.last
+  }
+
   /// Get a session by its system call ID.
   func session(for id: UUID) -> CallSession? {
     sessions[id]

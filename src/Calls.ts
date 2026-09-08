@@ -89,6 +89,10 @@ import ExpoCallKitTelecomModule from "./ExpoCallKitTelecomModule";
 /**
  * Gets the currently active call session, if any.
  *
+ * With 2 concurrent calls, this returns the one that isn't on hold (falling
+ * back to the most recently added session if every session is currently on
+ * hold). Use {@link getAllCallSessions} if you need every session at once.
+ *
  * @returns The active call session, or `null` if no call is in progress.
  *
  * @example
@@ -99,13 +103,26 @@ import ExpoCallKitTelecomModule from "./ExpoCallKitTelecomModule";
  * }
  * ```
  *
+ * @see {@link getAllCallSessions} — get every concurrent call session.
+ *
  * @category Sessions
  */
 export async function getActiveCallSession(): Promise<CallSession | null> {
-  const session = await ExpoCallKitTelecomModule.getActiveCallSession();
-  if (session) {
-  }
-  return session;
+  return await ExpoCallKitTelecomModule.getActiveCallSession();
+}
+
+/**
+ * Gets every current call session (e.g. one active + one on hold when 2
+ * calls are in progress).
+ *
+ * @returns All current call sessions, in the order they were added.
+ *
+ * @see {@link getActiveCallSession} — get just the one that isn't on hold.
+ *
+ * @category Sessions
+ */
+export async function getAllCallSessions(): Promise<CallSession[]> {
+  return await ExpoCallKitTelecomModule.getAllCallSessions();
 }
 
 /**

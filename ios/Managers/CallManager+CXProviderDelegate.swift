@@ -207,11 +207,14 @@ extension CallManager: CXProviderDelegate {
       let sessions = await store.allSessions
       AudioManager.shared.onAVAudioSessionActivated(calls: sessions)
 
-      // Play dialtone for outgoing calls that are still connecting
-      if let session = sessions.first,
-        session.origin == .outgoingApp || session.origin == .outgoingSystem,
-        session.status == .connecting
-      {
+      // Play dialtone if any outgoing call is still connecting (not just the
+      // first-added session - a second call may be the one connecting while
+      // the first is on hold).
+      let hasConnectingOutgoingCall = sessions.contains { session in
+        (session.origin == .outgoingApp || session.origin == .outgoingSystem)
+          && session.status == .connecting
+      }
+      if hasConnectingOutgoingCall {
         DialtonePlayer.shared.play()
       }
     }
