@@ -24,7 +24,7 @@ class CallManager: NSObject {
   private let callController = CXCallController()
   private let provider: CXProvider
 
-  private let supportsHolding = false
+  private let supportsHolding = true
   private let supportsGrouping = false
   private let supportsUngrouping = false
   private let supportsDTMF = false
