@@ -624,6 +624,23 @@ export function addCallEndedListener(
 }
 
 /**
+ * Acknowledges that you've finished handling a {@link CallEndedEvent} (e.g.
+ * after sending a SIP BYE/486), letting native finish its own cleanup right
+ * away instead of waiting out a short timeout (~3s). The call ends either
+ * way - this only lets your cleanup happen first. If you don't call this,
+ * native proceeds automatically once the timeout elapses.
+ *
+ * @param requestId - The request ID from the CallEndedEvent.
+ *
+ * @see {@link addCallEndedListener} — the event this acknowledges.
+ *
+ * @category Fulfillers
+ */
+export async function fulfillCallEnded(requestId: string): Promise<void> {
+  await ExpoCallKitTelecomModule.fulfillCallEnded(requestId);
+}
+
+/**
  * Reports that a call has ended for an external reason.
  *
  * Use this when a call ends due to reasons outside the local user's control,

@@ -37,6 +37,15 @@ export type ExpoCallKitTelecomPluginProps = {
    */
   fulfillAnswerCallTimeout?: number;
   /**
+   * Timeout in seconds for waiting for JS to acknowledge a call end (e.g.
+   * finish sending a SIP BYE/486) before native proceeds with cleanup. The
+   * call ends either way - this only sequences JS's work ahead of native's.
+   * @default 3
+   * @platform ios
+   * @platform android
+   */
+  fulfillCallEndedTimeout?: number;
+  /**
    * Whether completed calls appear in the phone's call history (Recents).
    * Maps to CallKit's `CXProviderConfiguration.includesCallsInRecents`.
    * @default true

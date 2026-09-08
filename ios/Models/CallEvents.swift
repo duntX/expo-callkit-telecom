@@ -163,12 +163,16 @@ struct CallEndedEvent: CallEvent {
   /// "declined" if the call was still ringing (never answered) when ended,
   /// "hungUp" otherwise (ended after being answered/connected).
   let reason: String
+  /// Pass to `fulfillCallEnded` to let the app finish its own cleanup (e.g.
+  /// sending a SIP BYE/486) before CXEndCallAction is fulfilled.
+  let requestId: UUID
 
   var body: [String: Any] {
     [
       CallEventKeys.id: id.uuidString,
       "session": session.toDictionary(),
       "reason": reason,
+      "requestId": requestId.uuidString,
     ]
   }
 }

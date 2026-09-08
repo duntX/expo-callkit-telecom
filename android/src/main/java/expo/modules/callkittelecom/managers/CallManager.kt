@@ -97,6 +97,13 @@ class CallManager private constructor() {
     private var outgoingCallTimeoutMs = 60_000L
     private var fulfillAnswerTimeoutMs = 30_000L
 
+    /**
+     * How long to wait for JS to acknowledge a call end (e.g. finish sending a
+     * SIP BYE/486) before proceeding with cleanup. Short by design - ending/declining
+     * should feel instant to the user, and the call ends either way.
+     */
+    private var fulfillCallEndedTimeoutMs = 3_000L
+
     /** Initializes Core-Telecom CallsManager + dependent managers. Safe to call repeatedly. */
     fun initialize(appContext: Context) {
         if (isInitialized) return
@@ -129,6 +136,8 @@ class CallManager private constructor() {
             readTimeoutMs("ExpoCallKitTelecomOutgoingCallTimeout", outgoingCallTimeoutMs)
         fulfillAnswerTimeoutMs =
             readTimeoutMs("ExpoCallKitTelecomFulfillAnswerCallTimeout", fulfillAnswerTimeoutMs)
+        fulfillCallEndedTimeoutMs =
+            readTimeoutMs("ExpoCallKitTelecomFulfillCallEndedTimeout", fulfillCallEndedTimeoutMs)
 
         CallAudioManager.initialize(context)
         CallAudioManager.onRequestEndpointChange = { endpoint ->
@@ -471,7 +480,8 @@ class CallManager private constructor() {
      * - Cancels timeouts and pending fulfill requests
      * - Disconnects Core-Telecom scope (which causes addCall to return)
      * - Emits ended/reported-ended events as requested
-     * - Removes session from store
+     * - Removes session from store - immediately for a reported (remote) end,
+     *   or after JS acks/times out for a local end (`emitEnded`) - see [fulfillCallEnded]
      * - Deactivates audio after last session
      */
     private fun finishCall(
@@ -481,6 +491,16 @@ class CallManager private constructor() {
         sendDisconnect: Boolean = true,
     ) {
         val existingSession = CallStore.session(id) ?: return
+
+        // Already finalized by a previous finishCall call for this id (e.g. endCall()
+        // already ran and is waiting on a fulfillCallEnded ack/timeout, and Core-Telecom's
+        // onDisconnect callback is now firing as a result of that same disconnect signal).
+        // Bail out so we don't re-emit events or cancel the in-flight fulfill request.
+        if (existingSession.status == CallSessionStatus.ENDED) {
+            CallKitTelecomLog.d(TAG) { "Call already finalized, ignoring - id: $id" }
+            return
+        }
+
         DialtonePlayer.stop()
         cancelCallTimeout(id)
         FulfillRequestManager.cancelForCall(id)
@@ -510,9 +530,26 @@ class CallManager private constructor() {
         val endedSession = CallStore.session(id) ?: existingSession
 
         if (emitEnded) {
+            // Give JS a short window to finish its own cleanup (e.g. SIP BYE/486)
+            // before removing the session. The call ends either way - this only
+            // sequences JS's work ahead of native cleanup, via fulfillCallEnded
+            // or the timeout below, whichever comes first.
+            val request =
+                FulfillRequestManager.createRequest(
+                    callId = id,
+                    timeoutMs = fulfillCallEndedTimeoutMs,
+                ) { callId ->
+                    CallKitTelecomLog.d(TAG) { "CallEnded JS ack timed out - id: $callId" }
+                    completeCallRemoval(callId, reportedReason)
+                }
+
             CallEventEmitter.send(
                 CallEvents.CALL_ENDED,
-                sessionEventBody(endedSession, "reason" to localEndReason),
+                sessionEventBody(
+                    endedSession,
+                    "reason" to localEndReason,
+                    "requestId" to request.requestId.toString(),
+                ),
             )
         }
 
@@ -523,6 +560,18 @@ class CallManager private constructor() {
             )
         }
 
+        // The emitEnded path defers removal to fulfillCallEnded/the timeout above.
+        if (!emitEnded) {
+            completeCallRemoval(id, reportedReason)
+        }
+    }
+
+    /**
+     * Removes the session and deactivates audio if it was the last one.
+     * Runs immediately for a reported (remote) end, or once JS acks/times out
+     * for a local end (`emitEnded` in [finishCall]) - see [fulfillCallEnded].
+     */
+    private fun completeCallRemoval(id: UUID, reportedReason: CallEndedReason?) {
         CallStore.remove(id)
 
         val remainingSessions = CallStore.allSessions()
@@ -531,8 +580,20 @@ class CallManager private constructor() {
         }
 
         CallKitTelecomLog.d(TAG) {
-            "Call finished - id: $id, emitEnded: $emitEnded, reason: ${reportedReason?.value}"
+            "Call finished - id: $id, reason: ${reportedReason?.value}"
         }
+    }
+
+    /**
+     * Acknowledges that JS has finished handling a `CALL_ENDED` event (e.g.
+     * after sending a SIP BYE/486), letting the pending session removal
+     * happen right away instead of waiting out [fulfillCallEndedTimeoutMs].
+     * The call ends either way - this only lets JS's cleanup happen before
+     * native's. If the request has already timed out, this is a no-op.
+     */
+    fun fulfillCallEnded(requestId: UUID) {
+        val callId = FulfillRequestManager.fulfill(requestId) ?: return
+        completeCallRemoval(callId, null)
     }
 
     /**

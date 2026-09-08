@@ -10,6 +10,7 @@ import { basename, resolve } from "path";
 
 import {
   DEFAULT_FULFILL_ANSWER_CALL_TIMEOUT,
+  DEFAULT_FULFILL_CALL_ENDED_TIMEOUT,
   DEFAULT_INCLUDES_CALLS_IN_RECENTS,
   DEFAULT_INCOMING_CALL_TIMEOUT,
   DEFAULT_OUTGOING_CALL_TIMEOUT,
@@ -108,9 +109,15 @@ const withTimeouts: ConfigPlugin<{
   incomingCallTimeout?: number;
   outgoingCallTimeout?: number;
   fulfillAnswerCallTimeout?: number;
+  fulfillCallEndedTimeout?: number;
 }> = (
   config,
-  { incomingCallTimeout, outgoingCallTimeout, fulfillAnswerCallTimeout },
+  {
+    incomingCallTimeout,
+    outgoingCallTimeout,
+    fulfillAnswerCallTimeout,
+    fulfillCallEndedTimeout,
+  },
 ) => {
   return withInfoPlist(config, (config) => {
     config.modResults.ExpoCallKitTelecomIncomingCallTimeout =
@@ -119,6 +126,8 @@ const withTimeouts: ConfigPlugin<{
       outgoingCallTimeout ?? DEFAULT_OUTGOING_CALL_TIMEOUT;
     config.modResults.ExpoCallKitTelecomFulfillAnswerCallTimeout =
       fulfillAnswerCallTimeout ?? DEFAULT_FULFILL_ANSWER_CALL_TIMEOUT;
+    config.modResults.ExpoCallKitTelecomFulfillCallEndedTimeout =
+      fulfillCallEndedTimeout ?? DEFAULT_FULFILL_CALL_ENDED_TIMEOUT;
     return config;
   });
 };
@@ -266,6 +275,7 @@ export const withExpoCallKitTelecomIos: ConfigPlugin<ExpoCallKitTelecomPluginPro
     incomingCallTimeout,
     outgoingCallTimeout,
     fulfillAnswerCallTimeout,
+    fulfillCallEndedTimeout,
     includesCallsInRecents,
     sounds,
     defaultRingtoneIos,
@@ -280,6 +290,7 @@ export const withExpoCallKitTelecomIos: ConfigPlugin<ExpoCallKitTelecomPluginPro
     incomingCallTimeout,
     outgoingCallTimeout,
     fulfillAnswerCallTimeout,
+    fulfillCallEndedTimeout,
   });
   config = withRecents(config, { includesCallsInRecents });
   config = withSounds(config, { sounds });

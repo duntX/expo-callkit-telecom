@@ -13,6 +13,18 @@ extension CallManager: CXProviderDelegate {
     return .seconds(seconds)
   }()
 
+  /// Timeout for waiting for JS to acknowledge a call end (e.g. finish
+  /// sending a SIP BYE/486) before CXEndCallAction is fulfilled. Short by
+  /// design - unlike answering, ending/declining should feel instant to the
+  /// user, and the call ends regardless of whether JS acknowledges in time.
+  private static let callEndedTimeout: Duration = {
+    let seconds =
+      Bundle.main.object(
+        forInfoDictionaryKey: "ExpoCallKitTelecomFulfillCallEndedTimeout"
+      ) as? Int ?? 3
+    return .seconds(seconds)
+  }()
+
   // MARK: - providerDidReset
 
   func providerDidReset(_ provider: CXProvider) {
@@ -108,16 +120,34 @@ extension CallManager: CXProviderDelegate {
       if var session = await store.session(for: action.callUUID) {
         let reason = session.status == .ringing ? "declined" : "hungUp"
         session.status = .ended
+
+        let (requestId, resultTask) = await FulfillRequestManager.shared.createRequest(
+          callId: action.callUUID,
+          timeout: Self.callEndedTimeout
+        )
+
         await MainActor.run {
           CallEventEmitter.shared.send(
-            CallEndedEvent(id: action.callUUID, session: session, reason: reason))
+            CallEndedEvent(
+              id: action.callUUID, session: session, reason: reason, requestId: requestId))
+        }
+
+        // Give JS a short window to finish its own cleanup (e.g. SIP BYE/486)
+        // before fulfilling. The call ends either way - this only sequences
+        // JS's work ahead of native cleanup, it never blocks the call from ending.
+        switch await resultTask.value {
+        case .fulfilled:
+          Log.call.debug("CXEndCallAction acknowledged by JS - id: \(action.callUUID)")
+        case .cancelled:
+          Log.call.debug("CXEndCallAction JS ack cancelled - id: \(action.callUUID)")
+        case .timedOut:
+          Log.call.debug("CXEndCallAction JS ack timed out - id: \(action.callUUID)")
         }
       }
 
       await store.remove(for: action.callUUID)
+      action.fulfill()
     }
-
-    action.fulfill()
   }
 
   // MARK: - CXSetMutedCallAction

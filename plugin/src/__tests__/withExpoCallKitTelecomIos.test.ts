@@ -57,5 +57,11 @@ describe("withExpoCallKitTelecomIos Info.plist configuration", () => {
     expect(plist.ExpoCallKitTelecomIncomingCallTimeout).toBe(45);
     expect(plist.ExpoCallKitTelecomOutgoingCallTimeout).toBe(60);
     expect(plist.ExpoCallKitTelecomFulfillAnswerCallTimeout).toBe(30);
+    expect(plist.ExpoCallKitTelecomFulfillCallEndedTimeout).toBe(3);
+  });
+
+  it("writes a custom ExpoCallKitTelecomFulfillCallEndedTimeout when the prop is set", async () => {
+    const plist = await evaluateInfoPlist({ fulfillCallEndedTimeout: 5 });
+    expect(plist.ExpoCallKitTelecomFulfillCallEndedTimeout).toBe(5);
   });
 });

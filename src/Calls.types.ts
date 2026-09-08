@@ -395,10 +395,15 @@ export type LocalCallEndedReason = "declined" | "hungUp";
 /**
  * Fired when the user ends a call from the system UI, or the OS ends the call for any reason.
  *
+ * Call {@link fulfillCallEnded} with `requestId` when you're done handling this
+ * (e.g. after sending a SIP BYE/486) to let native finish cleanup right away,
+ * instead of waiting out the timeout. The call ends either way.
+ *
  * @category Call Events
  */
 export interface CallEndedEvent extends CallActionEvent, WithSession {
   reason: LocalCallEndedReason;
+  requestId: string;
 }
 
 /**

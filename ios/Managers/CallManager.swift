@@ -494,6 +494,18 @@ class CallManager: NSObject {
     Log.call.debug("Failed incoming call connection - requestId: \(requestId)")
   }
 
+  /// Acknowledges that JS has finished handling a `CallEndedEvent` (e.g. after
+  /// sending a SIP BYE/486), letting the pending `CXEndCallAction` fulfill
+  /// without waiting out the full timeout. The call ends either way - this
+  /// only lets JS's cleanup happen before native's. If the request has
+  /// already timed out, this is a no-op.
+  ///
+  /// - Parameter requestId: The unique request ID from the CallEndedEvent.
+  func fulfillCallEnded(requestId: UUID) async {
+    _ = await FulfillRequestManager.shared.fulfill(requestId: requestId)
+    Log.call.debug("Fulfilled call ended ack - requestId: \(requestId)")
+  }
+
   /// Reports to CallKit that an outgoing call has connected.
   ///
   /// Call this when the media connection (e.g., LiveKit room) is established

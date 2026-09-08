@@ -384,6 +384,17 @@ public class ExpoCallKitTelecomModule: Module {
       await CallManager.shared.failIncomingCallConnected(requestId: requestUUID)
     }
 
+    AsyncFunction("fulfillCallEnded") { (requestId: String) in
+      guard let requestUUID = UUID(uuidString: requestId) else {
+        throw Exception(
+          name: "InvalidUUID",
+          description: "Invalid request ID: \(requestId)"
+        )
+      }
+
+      await CallManager.shared.fulfillCallEnded(requestId: requestUUID)
+    }
+
     AsyncFunction("reportOutgoingCallConnected") { (id: String) in
       guard let uuid = UUID(uuidString: id) else {
         throw Exception(

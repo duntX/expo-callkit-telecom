@@ -305,6 +305,12 @@ class ExpoCallKitTelecomModule : Module() {
             )
         }
 
+        // Acknowledges a CALL_ENDED event so native can finish cleanup right away
+        // instead of waiting out the fulfill timeout.
+        AsyncFunction("fulfillCallEnded") { requestId: String ->
+            CallManager.shared.fulfillCallEnded(UUID.fromString(requestId))
+        }
+
         // endregion
 
         // region Mute Support
