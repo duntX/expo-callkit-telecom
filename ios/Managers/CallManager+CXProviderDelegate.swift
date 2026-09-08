@@ -106,10 +106,11 @@ extension CallManager: CXProviderDelegate {
     Task {
       // Snapshot the session as ended so the embedded session reflects the terminal state.
       if var session = await store.session(for: action.callUUID) {
+        let reason = session.status == .ringing ? "declined" : "hungUp"
         session.status = .ended
         await MainActor.run {
           CallEventEmitter.shared.send(
-            CallEndedEvent(id: action.callUUID, session: session))
+            CallEndedEvent(id: action.callUUID, session: session, reason: reason))
         }
       }
 

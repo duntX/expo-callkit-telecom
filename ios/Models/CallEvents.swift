@@ -160,11 +160,15 @@ struct CallEndedEvent: CallEvent {
 
   let id: UUID
   let session: CallSession
+  /// "declined" if the call was still ringing (never answered) when ended,
+  /// "hungUp" otherwise (ended after being answered/connected).
+  let reason: String
 
   var body: [String: Any] {
     [
       CallEventKeys.id: id.uuidString,
       "session": session.toDictionary(),
+      "reason": reason,
     ]
   }
 }

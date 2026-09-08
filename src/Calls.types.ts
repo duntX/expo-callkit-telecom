@@ -383,11 +383,23 @@ export interface CallAnsweredEvent extends CallActionEvent {
 }
 
 /**
+ * Reason a locally-initiated call end happened, reported on {@link CallEndedEvent}.
+ *
+ * "declined" means the incoming call was still ringing (never answered) when
+ * it ended; "hungUp" means it ended after being answered/connected.
+ *
+ * @category Call Events
+ */
+export type LocalCallEndedReason = "declined" | "hungUp";
+
+/**
  * Fired when the user ends a call from the system UI, or the OS ends the call for any reason.
  *
  * @category Call Events
  */
-export interface CallEndedEvent extends CallActionEvent, WithSession {}
+export interface CallEndedEvent extends CallActionEvent, WithSession {
+  reason: LocalCallEndedReason;
+}
 
 /**
  * Reason a call was ended, reported on {@link CallReportedEnded}.

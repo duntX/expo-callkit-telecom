@@ -496,6 +496,11 @@ class CallManager private constructor() {
             activeCalls.remove(id)?.actions?.disconnect?.trySend(disconnectCauseFor(reportedReason))
         }
 
+        // "declined" if the call was still ringing (never answered) when it ended,
+        // "hungUp" otherwise (ended after being answered/connected). Computed from
+        // the status before it's overwritten to ENDED below.
+        val localEndReason = if (existingSession.status == CallSessionStatus.RINGING) "declined" else "hungUp"
+
         if (existingSession.status != CallSessionStatus.ENDED) {
             CallStore.updateStatus(id, CallSessionStatus.ENDED)
         }
@@ -505,7 +510,10 @@ class CallManager private constructor() {
         val endedSession = CallStore.session(id) ?: existingSession
 
         if (emitEnded) {
-            CallEventEmitter.send(CallEvents.CALL_ENDED, sessionEventBody(endedSession))
+            CallEventEmitter.send(
+                CallEvents.CALL_ENDED,
+                sessionEventBody(endedSession, "reason" to localEndReason),
+            )
         }
 
         if (reportedReason != null) {
