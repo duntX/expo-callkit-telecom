@@ -604,6 +604,13 @@ class CallManager: NSObject {
     }
 
     await store.remove(for: id)
+    await restoreAudioSessionIfIdle()
+  }
+
+  /// Also handles ending an already-held call, which may not deactivate again.
+  func restoreAudioSessionIfIdle() async {
+    let sessions = await store.allSessions
+    AudioManager.shared.restoreAudioSessionIfIdle(calls: sessions)
   }
 
   // MARK: - Mute Support

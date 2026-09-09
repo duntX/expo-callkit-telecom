@@ -91,8 +91,8 @@ private struct SavedAudioSessionConfig {
 /// 3. **CallKit Activation**: When CallKit activates the audio session,
 ///    `onAVAudioSessionActivated()` notifies WebRTC and enables audio.
 ///
-/// 4. **CallKit Deactivation**: When the call ends, `onAVAudioSessionDeactivated()`
-///    disables audio and restores the pre-call audio configuration.
+/// 4. **CallKit Deactivation**: `onAVAudioSessionDeactivated()` disables audio.
+///    The pre-call configuration is restored only after all calls have ended.
 ///
 /// Note: The LiveKit SDK's AudioSession.ts can also be used to configure audio based on call state:
 /// https://github.com/livekit/client-sdk-react-native/blob/main/src/audio/AudioSession.ts#L206
@@ -288,6 +288,13 @@ final class AudioManager {
     savedConfig = nil
   }
 
+  /// Restore only after the last call ends and CallKit has released audio.
+  /// Held calls retain the configuration and the pre-call snapshot.
+  func restoreAudioSessionIfIdle(calls: [CallSession]) {
+    guard !isActive, !calls.contains(where: { $0.status != .ended }) else { return }
+    restoreAudioSession()
+  }
+
   // MARK: - CallKit Audio Session Callbacks
 
   /// Called when CallKit activates the audio session.
@@ -314,7 +321,7 @@ final class AudioManager {
   }
 
   /// Called when CallKit deactivates the audio session.
-  /// This happens when the call ends.
+  /// This can also happen while a call is held or interrupted.
   /// - Parameter calls: The call sessions that were active when deactivation occurred.
   func onAVAudioSessionDeactivated(calls: [CallSession]) {
     isActive = false
@@ -326,8 +333,8 @@ final class AudioManager {
     // Notify WebRTC that CallKit deactivated the audio session
     rtcSession.audioSessionDidDeactivate(AVAudioSession.sharedInstance())
 
-    // Restore the audio session configuration from before the call
-    restoreAudioSession()
+    // Deactivation does not mean the call ended. Preserve routing while held.
+    restoreAudioSessionIfIdle(calls: calls)
 
     Log.audio.debug("RTC audio session deactivated")
 
