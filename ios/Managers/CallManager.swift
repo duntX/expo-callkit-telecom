@@ -503,7 +503,7 @@ class CallManager: NSObject {
   ///
   /// - Parameter requestId: The unique request ID from the CallAnsweredEvent.
   func failIncomingCallConnected(requestId: UUID) async {
-    await FulfillRequestManager.shared.cancel(requestId: requestId)
+    await FulfillRequestManager.shared.cancel(requestId: requestId, connectionFailed: true)
     Log.call.debug("Failed incoming call connection - requestId: \(requestId)")
   }
 
@@ -555,6 +555,7 @@ class CallManager: NSObject {
     Log.call.debug("Ending call - id: \(id)")
     let endCallAction = CXEndCallAction(call: id)
     let transaction = CXTransaction(action: endCallAction)
+    await FulfillRequestManager.shared.registerAppEndAction(endCallAction.uuid)
 
     do {
       try await withCheckedThrowingContinuation {
@@ -569,6 +570,7 @@ class CallManager: NSObject {
       }
       Log.call.debug("End call request accepted by CallKit - id: \(id)")
     } catch {
+      await FulfillRequestManager.shared.removeAppEndAction(endCallAction.uuid)
       Log.call.error(
         "End call request rejected by CallKit - id: \(id), error: \(error.localizedDescription)")
       throw error
@@ -604,6 +606,7 @@ class CallManager: NSObject {
     }
 
     await store.remove(for: id)
+    await FulfillRequestManager.shared.clearCall(id)
     await restoreAudioSessionIfIdle()
   }
 

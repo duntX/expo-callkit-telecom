@@ -288,6 +288,10 @@ class ExpoCallKitTelecomModule : Module() {
             CallManager.shared.fulfillIncomingCallConnected(UUID.fromString(requestId))
         }
 
+        AsyncFunction("failIncomingCallConnected") { id: String, requestId: String ->
+            CallManager.shared.failIncomingCallConnected(UUID.fromString(id), UUID.fromString(requestId))
+        }
+
         // Reports outgoing call media connection established.
         AsyncFunction("reportOutgoingCallConnected") { id: String ->
             CallManager.shared.reportOutgoingCallConnected(UUID.fromString(id))
@@ -298,7 +302,7 @@ class ExpoCallKitTelecomModule : Module() {
         // region End Call
 
         // Ends an active call.
-        AsyncFunction("endCall") { id: String -> CallManager.shared.endCall(UUID.fromString(id)) }
+        AsyncFunction("endCall") { id: String -> CallManager.shared.endCall(UUID.fromString(id), appRequested = true) }
 
         // Reports an externally-ended call with explicit reason.
         AsyncFunction("reportCallEnded") { id: String, reason: String ->

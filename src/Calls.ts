@@ -555,8 +555,8 @@ export async function fulfillIncomingCallConnected(
  * Call this when the answer flow fails before media is connected
  * (e.g., API error). On iOS, causes CXAnswerCallAction to fail, which
  * triggers CallKit to end the call via CXEndCallAction. On Android,
- * ends the call via {@link reportCallEnded} which also cancels any
- * pending fulfill request.
+ * ends the call through the local end flow. Both platforms report
+ * `connectionFailed` on {@link addCallEndedListener} for an accepted failure.
  *
  * @param id - The call session ID.
  * @param requestId - The request ID from the CallAnsweredEvent.
@@ -573,7 +573,7 @@ export async function failIncomingCallConnected(
   if (Platform.OS === "ios") {
     await ExpoCallKitTelecomModule.failIncomingCallConnected(requestId);
   } else {
-    await ExpoCallKitTelecomModule.reportCallEnded(id, "failed");
+    await ExpoCallKitTelecomModule.failIncomingCallConnected(id, requestId);
   }
 }
 

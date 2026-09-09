@@ -28,6 +28,7 @@ actor FulfillRequestManager {
 
   /// A pending request awaiting fulfillment.
   private struct PendingRequest {
+    let isAnswer: Bool
     let id: UUID
     let callId: UUID
     let createdAt: Date
@@ -38,6 +39,39 @@ actor FulfillRequestManager {
   /// Active pending requests keyed by request ID.
   private var pendingRequests: [UUID: PendingRequest] = [:]
 
+  private var endReasons: [UUID: String] = [:]
+  private var endingCalls: Set<UUID> = []
+  private var appEndActions: Set<UUID> = []
+
+  func registerAppEndAction(_ actionId: UUID) {
+    appEndActions.insert(actionId)
+  }
+
+  func removeAppEndAction(_ actionId: UUID) {
+    appEndActions.remove(actionId)
+  }
+
+  func recordEndReason(callId: UUID, reason: String) {
+    guard !endingCalls.contains(callId), endReasons[callId] == nil else { return }
+    endReasons[callId] = reason
+  }
+
+  func beginEnding(callId: UUID, actionId: UUID, fallback: String) -> String? {
+    let appRequested = appEndActions.remove(actionId) != nil
+    guard endingCalls.insert(callId).inserted else { return nil }
+    return endReasons[callId] ?? (appRequested ? "appRequested" : fallback)
+  }
+
+  func clearCall(_ callId: UUID) {
+    // Prevent an outstanding answer timer from recreating a reason after cleanup.
+    let requestIds = pendingRequests.values.filter { $0.callId == callId }.map { $0.id }
+    for requestId in requestIds {
+      cancel(requestId: requestId)
+    }
+    endReasons.removeValue(forKey: callId)
+    endingCalls.remove(callId)
+  }
+
   private init() {}
 
   /// Creates a new pending request with the specified call ID and timeout.
@@ -47,7 +81,7 @@ actor FulfillRequestManager {
   ///   - timeout: Duration before the request automatically times out.
   /// - Returns: A tuple containing the request ID and a task that resolves
   ///   when the request is fulfilled or times out.
-  func createRequest(callId: UUID, timeout: Duration) -> (
+  func createRequest(callId: UUID, timeout: Duration, isAnswer: Bool = false) -> (
     requestId: UUID, result: Task<Result, Never>
   ) {
     let requestId = UUID()
@@ -65,13 +99,14 @@ actor FulfillRequestManager {
           guard !Task.isCancelled, let self = self else { return }
 
           // Timeout expired - remove and resume with timedOut
-          if let request = await self.removeRequest(for: requestId) {
+          if let request = await self.expireRequest(for: requestId) {
             Log.call.debug("Fulfill request timed out - requestId: \(requestId)")
             request.continuation.resume(returning: .timedOut)
           }
         }
 
         let request = PendingRequest(
+          isAnswer: isAnswer,
           id: requestId,
           callId: callId,
           createdAt: Date(),
@@ -118,11 +153,14 @@ actor FulfillRequestManager {
   /// Use this when the request should be aborted (e.g., call ended before connection).
   ///
   /// - Parameter requestId: The unique ID of the request to cancel.
-  func cancel(requestId: UUID) {
+  func cancel(requestId: UUID, connectionFailed: Bool = false) {
     guard let request = pendingRequests.removeValue(forKey: requestId) else {
       return
     }
 
+    if connectionFailed && request.isAnswer {
+      recordEndReason(callId: request.callId, reason: "connectionFailed")
+    }
     request.timeoutTask.cancel()
     Log.call.debug("Fulfill request cancelled - requestId: \(requestId)")
     request.continuation.resume(returning: .cancelled)
@@ -134,6 +172,9 @@ actor FulfillRequestManager {
   func cancelAll() {
     let requests = pendingRequests
     pendingRequests.removeAll()
+    endReasons.removeAll()
+    endingCalls.removeAll()
+    appEndActions.removeAll()
 
     for (id, request) in requests {
       request.timeoutTask.cancel()
@@ -148,7 +189,11 @@ actor FulfillRequestManager {
     pendingRequests[request.id] = request
   }
 
-  private func removeRequest(for requestId: UUID) -> PendingRequest? {
-    pendingRequests.removeValue(forKey: requestId)
+  private func expireRequest(for requestId: UUID) -> PendingRequest? {
+    guard let request = pendingRequests.removeValue(forKey: requestId) else { return nil }
+    if request.isAnswer {
+      recordEndReason(callId: request.callId, reason: "answerTimedOut")
+    }
+    return request
   }
 }

@@ -385,12 +385,21 @@ export interface CallAnsweredEvent extends CallActionEvent {
 /**
  * Reason a locally-initiated call end happened, reported on {@link CallEndedEvent}.
  *
- * "declined" means the incoming call was still ringing (never answered) when
- * it ended; "hungUp" means it ended after being answered/connected.
+ * "declined" means an end action arrived while ringing; it does not prove a
+ * particular system UI button was pressed. "hungUp" is the fallback otherwise.
+ * "connectionFailed" identifies an accepted failIncomingCallConnected,
+ * "answerTimedOut" identifies the pending answer deadline, and "appRequested"
+ * identifies an app endCall request.
+ * Ringing timeout remains a reported-ended event with reason "unanswered".
  *
  * @category Call Events
  */
-export type LocalCallEndedReason = "declined" | "hungUp";
+export type LocalCallEndedReason =
+  | "declined"
+  | "hungUp"
+  | "connectionFailed"
+  | "answerTimedOut"
+  | "appRequested";
 
 /**
  * Fired when the user ends a call from the system UI, or the OS ends the call for any reason.

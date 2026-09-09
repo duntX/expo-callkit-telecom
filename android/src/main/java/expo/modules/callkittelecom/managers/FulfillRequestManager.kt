@@ -106,6 +106,18 @@ object FulfillRequestManager {
         return callId
     }
 
+    /** Atomically consumes only the matching call's pending request. */
+    fun cancelMatching(requestId: UUID, callId: UUID): Boolean {
+        val job: Job?
+        synchronized(lock) {
+            if (requests[requestId] != callId) return false
+            requests.remove(requestId)
+            job = timeoutJobs.remove(requestId)
+        }
+        job?.cancel()
+        return true
+    }
+
     /**
      * Cancels a pending request by request ID without fulfilling it.
      *

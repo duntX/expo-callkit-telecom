@@ -439,6 +439,15 @@ class CallManager private constructor() {
         return true
     }
 
+    /** Fails only a still-pending answer belonging to this call. */
+    @Synchronized
+    fun failIncomingCallConnected(id: UUID, requestId: UUID) {
+        val session = CallStore.session(id) ?: return
+        if (session.status != CallSessionStatus.CONNECTING) return
+        if (!FulfillRequestManager.cancelMatching(requestId, id)) return
+        finishCall(id, emitEnded = true, reportedReason = null, localReason = "connectionFailed")
+    }
+
     /** Reports outgoing media is connected and sets call state to connected. */
     fun reportOutgoingCallConnected(id: UUID) {
         CallKitTelecomLog.d(TAG) { "Reporting outgoing call connected - id: $id" }
@@ -461,9 +470,12 @@ class CallManager private constructor() {
     // region End Call
 
     /** Ends a call as a local/system user action (`onCallEnded` path). */
-    fun endCall(id: UUID) {
+    fun endCall(id: UUID, appRequested: Boolean = false) {
         CallKitTelecomLog.d(TAG) { "Ending call - id: $id" }
-        finishCall(id, emitEnded = true, reportedReason = null)
+        finishCall(
+            id, emitEnded = true, reportedReason = null,
+            localReason = if (appRequested) "appRequested" else null,
+        )
     }
 
     /** Reports externally-ended call with explicit reason (`onCallReportedEnded` path). */
@@ -481,11 +493,13 @@ class CallManager private constructor() {
      *   or after JS acks/times out for a local end (`emitEnded`) - see [fulfillCallEnded]
      * - Deactivates audio after last session
      */
+    @Synchronized
     private fun finishCall(
         id: UUID,
         emitEnded: Boolean,
         reportedReason: CallEndedReason?,
         sendDisconnect: Boolean = true,
+        localReason: String? = null,
     ) {
         val existingSession = CallStore.session(id) ?: return
 
@@ -516,7 +530,7 @@ class CallManager private constructor() {
         // "declined" if the call was still ringing (never answered) when it ended,
         // "hungUp" otherwise (ended after being answered/connected). Computed from
         // the status before it's overwritten to ENDED below.
-        val localEndReason = if (existingSession.status == CallSessionStatus.RINGING) "declined" else "hungUp"
+        val localEndReason = localReason ?: if (existingSession.status == CallSessionStatus.RINGING) "declined" else "hungUp"
 
         if (existingSession.status != CallSessionStatus.ENDED) {
             CallStore.updateStatus(id, CallSessionStatus.ENDED)
@@ -903,7 +917,7 @@ class CallManager private constructor() {
 
         val request =
             FulfillRequestManager.createRequest(callId = id, timeoutMs = fulfillAnswerTimeoutMs) {
-                reportCallEnded(it, CallEndedReason.FAILED)
+                finishCall(it, emitEnded = true, reportedReason = null, localReason = "answerTimedOut")
             }
 
         CallKitTelecomLog.d(TAG) { "Call answered - id: $id, requestId: ${request.requestId}" }

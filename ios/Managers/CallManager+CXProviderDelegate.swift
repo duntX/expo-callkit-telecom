@@ -80,7 +80,8 @@ extension CallManager: CXProviderDelegate {
       // Create pending fulfill request with associated call ID
       let (requestId, resultTask) = await FulfillRequestManager.shared.createRequest(
         callId: action.callUUID,
-        timeout: Self.answerCallTimeout
+        timeout: Self.answerCallTimeout,
+        isAnswer: true
       )
 
       // Send event with request ID
@@ -119,7 +120,14 @@ extension CallManager: CXProviderDelegate {
     Task {
       // Snapshot the session as ended so the embedded session reflects the terminal state.
       if var session = await store.session(for: action.callUUID) {
-        let reason = session.status == .ringing ? "declined" : "hungUp"
+        guard let reason = await FulfillRequestManager.shared.beginEnding(
+          callId: action.callUUID,
+          actionId: action.uuid,
+          fallback: session.status == .ringing ? "declined" : "hungUp"
+        ) else {
+          action.fulfill()
+          return
+        }
         session.status = .ended
 
         let (requestId, resultTask) = await FulfillRequestManager.shared.createRequest(
@@ -147,6 +155,7 @@ extension CallManager: CXProviderDelegate {
       }
 
       await store.remove(for: action.callUUID)
+      await FulfillRequestManager.shared.clearCall(action.callUUID)
       action.fulfill()
       await restoreAudioSessionIfIdle()
     }

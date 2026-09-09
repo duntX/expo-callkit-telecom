@@ -56,3 +56,20 @@ The VoIP push token type is reported as `"APNS_VOIP"` on iOS and `"FCM"` on Andr
 ## Keeping connections alive in the background
 
 This module hands the OS a CallKit/Core-Telecom call, which keeps the *process* alive during a call — but JS timers (`setInterval`, `setTimeout`) and JS-side network heartbeats are still subject to background throttling once the screen locks. If your media stack needs an app-level heartbeat (e.g. a WebSocket signalling channel) to survive the background, pair this module with [`react-native-nitro-keepalive-timer`](https://www.npmjs.com/package/react-native-nitro-keepalive-timer) to get native timers that fire reliably while a call is active.
+
+### Call end reasons
+
+`addCallEndedListener` reports `connectionFailed` when a pending answer is
+explicitly failed with `failIncomingCallConnected`, `answerTimedOut` when its
+fulfillment deadline expires, and `appRequested` for an `endCall` transaction.
+Without a recorded answer failure, other CallKit end actions report `declined`
+while ringing or `hungUp` otherwise. `declined` describes the call state, not
+proof of a specific native button press. Pending request resolution and end
+classification are serialized; an end event already being handled is not
+reclassified by a later failure. Continue acknowledging this event with
+`fulfillCallEnded(requestId)`.
+
+The ringing timeout still uses `addReportedCallEndedListener` with `unanswered`.
+Android reports the same local reasons and uses the same end-event acknowledgment
+flow. Its native decline/hangup controls retain declined/hungUp; calls to the
+JavaScript endCall API report appRequested.
