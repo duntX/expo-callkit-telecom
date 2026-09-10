@@ -2,6 +2,7 @@ package expo.modules.callkittelecom.managers
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
 import android.media.MediaPlayer
 import expo.modules.callkittelecom.utils.CallKitTelecomLog
 import kotlinx.coroutines.CoroutineScope
@@ -100,11 +101,22 @@ object DialtonePlayer {
                 }
 
                 try {
-                    val mp = MediaPlayer.create(context.applicationContext, rawResourceId)
-                    if (mp == null) {
-                        CallKitTelecomLog.e(TAG) { "Failed to create MediaPlayer for dialtone" }
-                        return@withLock
-                    }
+                    val mp = MediaPlayer()
+                    mp.setAudioAttributes(
+                        AudioAttributes.Builder()
+                            // Routes into the active call's audio path instead of the
+                            // media stream, which many devices mute while a call is
+                            // active (AudioManager.MODE_IN_COMMUNICATION).
+                            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build(),
+                    )
+                    context.applicationContext.resources
+                        .openRawResourceFd(rawResourceId)
+                        .use { afd ->
+                            mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                        }
+                    mp.prepare()
 
                     mp.isLooping = true
                     mp.setVolume(0f, 0f)
