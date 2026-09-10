@@ -1,4 +1,5 @@
 import CallKit
+import UIKit
 import os
 
 /// Errors that can occur during call operations.
@@ -75,6 +76,14 @@ class CallManager: NSObject {
       ringtone != "default"
     {
       configuration.ringtoneSound = ringtone
+    }
+
+    if let iconName = Bundle.main.object(
+      forInfoDictionaryKey: "ExpoCallKitTelecomCallIcon"
+    ) as? String,
+      let image = UIImage(named: iconName)
+    {
+      configuration.iconTemplateImageData = image.pngData()
     }
 
     provider = CXProvider(configuration: configuration)
