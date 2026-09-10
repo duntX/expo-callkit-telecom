@@ -147,6 +147,7 @@ object CallAudioManager {
         if (!isInitialized) return
 
         DialtonePlayer.stop()
+        ProximityManager.release()
         CallKitTelecomLog.d(TAG) { "Deactivating audio session - calls: ${calls.size}" }
 
         currentEndpoint = null

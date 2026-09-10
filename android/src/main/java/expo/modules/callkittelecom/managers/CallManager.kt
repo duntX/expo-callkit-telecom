@@ -258,6 +258,7 @@ class CallManager private constructor() {
             )
 
         CallAudioManager.prepareAudioSessionForCall(options.hasVideo)
+        ProximityManager.acquire(context)
         CallStore.add(session)
 
         val attributes =
@@ -908,6 +909,7 @@ class CallManager private constructor() {
 
         CallStore.updateStatus(id, CallSessionStatus.CONNECTING)
         CallAudioManager.onAudioActivated(CallStore.allSessions())
+        ProximityManager.acquire(context)
 
         // Request speaker for video calls
         if (session.options.hasVideo) {
