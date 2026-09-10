@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import expo.modules.callkittelecom.utils.CallKitTelecomLog
+import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -19,6 +20,11 @@ import kotlinx.coroutines.sync.withLock
  *
  * Reads the dialtone resource name from AndroidManifest metadata
  * (`ExpoCallKitTelecomDefaultDialtone`) and plays it in a loop with a fade-in until stopped.
+ *
+ * Only one dialtone is audible at a time (there's one earpiece/speaker), but with 2
+ * concurrent call sessions, both calls can independently request/stop it. [play] and [stop]
+ * are keyed by call id: stopping call A never stops call B's dialtone, and if call A's
+ * dialtone finishes first, call B's still-pending request (if any) starts automatically.
  */
 object DialtonePlayer {
     private const val TAG = "ExpoCallKitTelecom.Dialtone"
@@ -35,9 +41,13 @@ object DialtonePlayer {
     private val mutex = Mutex()
 
     private var player: MediaPlayer? = null
+    private var playingCallId: UUID? = null
     private var fadeJob: Job? = null
     private var rawResourceId: Int = 0
     private var isInitialized = false
+
+    /** Calls that requested a dialtone while another call's was already playing. */
+    private val pendingCallIds = linkedSetOf<UUID>()
 
     /** Whether a dialtone resource is configured in the manifest. */
     val hasDialtone: Boolean
@@ -81,8 +91,11 @@ object DialtonePlayer {
         isInitialized = true
     }
 
-    /** Starts playing the dialtone sound in a loop with fade-in. */
-    fun play(context: Context) {
+    /**
+     * Starts playing the dialtone for [callId] in a loop with fade-in, or queues it if another
+     * call's dialtone is already playing - it starts as soon as that call's [stop] is called.
+     */
+    fun play(context: Context, callId: UUID) {
         if (!hasDialtone) {
             CallKitTelecomLog.d(TAG) { "No dialtone configured, skipping playback" }
             return
@@ -96,46 +109,59 @@ object DialtonePlayer {
         scope.launch {
             mutex.withLock {
                 if (player != null) {
-                    CallKitTelecomLog.d(TAG) { "Dialtone already playing" }
+                    if (playingCallId != callId) {
+                        pendingCallIds.add(callId)
+                        CallKitTelecomLog.d(TAG) {
+                            "Dialtone already playing for another call, queuing - callId: $callId"
+                        }
+                    }
                     return@withLock
                 }
 
-                try {
-                    val mp = MediaPlayer()
-                    mp.setAudioAttributes(
-                        AudioAttributes.Builder()
-                            // Routes into the active call's audio path instead of the
-                            // media stream, which many devices mute while a call is
-                            // active (AudioManager.MODE_IN_COMMUNICATION).
-                            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                            .build(),
-                    )
-                    context.applicationContext.resources
-                        .openRawResourceFd(rawResourceId)
-                        .use { afd ->
-                            mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                        }
-                    mp.prepare()
-
-                    mp.isLooping = true
-                    mp.setVolume(0f, 0f)
-                    player = mp
-
-                    // Brief delay to let audio session settle
-                    delay(START_DELAY_MS)
-
-                    if (player == mp) {
-                        mp.start()
-                        fadeIn()
-                        CallKitTelecomLog.d(TAG) { "Started playing dialtone" }
-                    }
-                } catch (e: Throwable) {
-                    CallKitTelecomLog.e(TAG) { "Failed to play dialtone: ${e.localizedMessage}" }
-                    player?.release()
-                    player = null
-                }
+                startPlayback(context, callId)
             }
+        }
+    }
+
+    /** Actually creates and starts the MediaPlayer for [callId]. Must be called under [mutex]. */
+    private suspend fun startPlayback(context: Context, callId: UUID) {
+        try {
+            val mp = MediaPlayer()
+            mp.setAudioAttributes(
+                AudioAttributes.Builder()
+                    // Routes into the active call's audio path instead of the
+                    // media stream, which many devices mute while a call is
+                    // active (AudioManager.MODE_IN_COMMUNICATION).
+                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build(),
+            )
+            context.applicationContext.resources
+                .openRawResourceFd(rawResourceId)
+                .use { afd ->
+                    mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                }
+            mp.prepare()
+
+            mp.isLooping = true
+            mp.setVolume(0f, 0f)
+            player = mp
+            playingCallId = callId
+            pendingCallIds.remove(callId)
+
+            // Brief delay to let audio session settle
+            delay(START_DELAY_MS)
+
+            if (player == mp) {
+                mp.start()
+                fadeIn()
+                CallKitTelecomLog.d(TAG) { "Started playing dialtone - callId: $callId" }
+            }
+        } catch (e: Throwable) {
+            CallKitTelecomLog.e(TAG) { "Failed to play dialtone: ${e.localizedMessage}" }
+            player?.release()
+            player = null
+            playingCallId = null
         }
     }
 
@@ -156,26 +182,56 @@ object DialtonePlayer {
             }
     }
 
-    /** Stops playing the dialtone sound. */
-    fun stop() {
+    /**
+     * Stops [callId]'s dialtone if it's the one currently playing, and promotes the next
+     * queued call (if any) to take over playback. A no-op if [callId] isn't the active or a
+     * queued call - so one call ending/timing out never silences another's dialtone.
+     */
+    fun stop(context: Context, callId: UUID) {
         scope.launch {
             mutex.withLock {
-                fadeJob?.cancel()
-                fadeJob = null
+                if (playingCallId != callId) {
+                    pendingCallIds.remove(callId)
+                    return@withLock
+                }
 
-                val mp = player ?: return@withLock
-                player = null
+                stopActivePlayback()
 
-                try {
-                    if (mp.isPlaying) {
-                        mp.stop()
-                    }
-                    mp.release()
-                    CallKitTelecomLog.d(TAG) { "Stopped playing dialtone" }
-                } catch (e: Throwable) {
-                    CallKitTelecomLog.e(TAG) { "Error stopping dialtone: ${e.localizedMessage}" }
+                val next = pendingCallIds.firstOrNull()
+                if (next != null) {
+                    startPlayback(context, next)
                 }
             }
+        }
+    }
+
+    /** Stops every call's dialtone/queue. For teardown when no calls remain. */
+    fun stopAll() {
+        scope.launch {
+            mutex.withLock {
+                pendingCallIds.clear()
+                stopActivePlayback()
+            }
+        }
+    }
+
+    /** Releases the current MediaPlayer, if any. Must be called under [mutex]. */
+    private fun stopActivePlayback() {
+        fadeJob?.cancel()
+        fadeJob = null
+
+        val mp = player ?: return
+        player = null
+        playingCallId = null
+
+        try {
+            if (mp.isPlaying) {
+                mp.stop()
+            }
+            mp.release()
+            CallKitTelecomLog.d(TAG) { "Stopped playing dialtone" }
+        } catch (e: Throwable) {
+            CallKitTelecomLog.e(TAG) { "Error stopping dialtone: ${e.localizedMessage}" }
         }
     }
 

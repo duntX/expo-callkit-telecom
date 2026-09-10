@@ -187,7 +187,7 @@ class CallManager private constructor() {
                     return@launch
                 }
                 CallKitTelecomLog.d(TAG) { "Call timeout expired - id: $id" }
-                DialtonePlayer.stop()
+                DialtonePlayer.stop(context, id)
                 reportCallEnded(id, CallEndedReason.UNANSWERED)
             }
 
@@ -297,7 +297,7 @@ class CallManager private constructor() {
                 }
 
                 if (options.playDialtone) {
-                    DialtonePlayer.play(context)
+                    DialtonePlayer.play(context, id)
                 }
 
                 CallEventEmitter.send(
@@ -412,7 +412,7 @@ class CallManager private constructor() {
     /** App-level answer request entrypoint (custom in-app answer button path). */
     fun answerCall(id: UUID) {
         CallKitTelecomLog.d(TAG) { "Answering call - id: $id" }
-        CallNotificationManager.cancel(context)
+        CallNotificationManager.cancel(context, id)
         onCallAnswered(id)
     }
 
@@ -454,7 +454,7 @@ class CallManager private constructor() {
     /** Reports outgoing media is connected and sets call state to connected. */
     fun reportOutgoingCallConnected(id: UUID) {
         CallKitTelecomLog.d(TAG) { "Reporting outgoing call connected - id: $id" }
-        DialtonePlayer.stop()
+        DialtonePlayer.stop(context, id)
         cancelCallTimeout(id)
 
         val now = Instant.now()
@@ -515,7 +515,7 @@ class CallManager private constructor() {
             return
         }
 
-        DialtonePlayer.stop()
+        DialtonePlayer.stop(context, id)
         cancelCallTimeout(id)
         FulfillRequestManager.cancelForCall(id)
 
@@ -640,9 +640,9 @@ class CallManager private constructor() {
             "Safety-net cleanup for call - id: $id, status: ${session.status.value}"
         }
 
-        DialtonePlayer.stop()
+        DialtonePlayer.stop(context, id)
         FulfillRequestManager.cancelForCall(id)
-        CallNotificationManager.cancel(context)
+        CallNotificationManager.cancel(context, id)
 
         if (session.status != CallSessionStatus.ENDED) {
             CallStore.updateStatus(id, CallSessionStatus.ENDED)
@@ -863,7 +863,7 @@ class CallManager private constructor() {
                 CallKitTelecomLog.d(TAG) {
                     "Available endpoints changed - id: $id, count: ${endpoints.size}"
                 }
-                CallAudioManager.onAvailableEndpointsChanged(endpoints)
+                CallAudioManager.onAvailableEndpointsChanged(id, endpoints)
             }
         }
 
@@ -873,7 +873,7 @@ class CallManager private constructor() {
                 CallKitTelecomLog.d(TAG) {
                     "Endpoint changed - id: $id, type: ${endpoint.type}, name: ${endpoint.name}"
                 }
-                CallAudioManager.onEndpointChanged(endpoint)
+                CallAudioManager.onEndpointChanged(id, endpoint)
             }
         }
 

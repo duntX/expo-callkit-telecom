@@ -36,7 +36,6 @@ object CallNotificationManager {
 
     private const val CHANNEL_INCOMING_PREFIX = "expo_callkit_telecom_incoming"
     private const val CHANNEL_ONGOING = "expo_callkit_telecom_ongoing"
-    private const val NOTIFICATION_ID = 8400
     private const val ENDED_CANCEL_DELAY_MS = 2000L
 
     private const val KEY_DEFAULT_RINGTONE = "ExpoCallKitTelecomDefaultRingtone"
@@ -50,7 +49,14 @@ object CallNotificationManager {
     private lateinit var incomingChannelId: String
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-    private var delayedCancelJob: Job? = null
+
+    /** Pending "auto-cancel after ended" jobs, keyed by call id - one call ending must not
+     *  cancel another concurrent call's pending job. */
+    private val delayedCancelJobs = mutableMapOf<UUID, Job>()
+
+    /** Stable per-call notification ID so 2 concurrent calls get separate notification slots
+     *  instead of one clobbering the other. */
+    private fun notificationId(callId: UUID): Int = callId.hashCode()
 
     /** Initializes notification channels. Safe to call repeatedly. */
     fun initialize(context: Context) {
@@ -171,7 +177,7 @@ object CallNotificationManager {
 
     /** Shows an incoming call notification with answer/decline actions and full-screen intent. */
     fun showIncomingCall(context: Context, callId: UUID, callerName: String?, hasVideo: Boolean) {
-        cancelDelayedCancel()
+        cancelDelayedCancel(callId)
         val ctx = context.applicationContext
         val displayName = callerName ?: "Unknown"
 
@@ -230,12 +236,12 @@ object CallNotificationManager {
                 .build()
 
         postNotification(ctx, callId, displayName, "incoming call")
-        notify(ctx, notification)
+        notify(ctx, callId, notification)
     }
 
     /** Shows a dialing notification for outgoing calls with a hangup action. */
     fun showDialingCall(context: Context, callId: UUID, callerName: String?) {
-        cancelDelayedCancel()
+        cancelDelayedCancel(callId)
         val ctx = context.applicationContext
         val displayName = callerName ?: "Unknown"
 
@@ -267,7 +273,7 @@ object CallNotificationManager {
                 .build()
 
         postNotification(ctx, callId, displayName, "dialing call")
-        notify(ctx, notification)
+        notify(ctx, callId, notification)
     }
 
     /** Switches the notification to ongoing call style with a call duration timer. */
@@ -277,7 +283,7 @@ object CallNotificationManager {
         callerName: String?,
         connectedAtMs: Long = System.currentTimeMillis(),
     ) {
-        cancelDelayedCancel()
+        cancelDelayedCancel(callId)
         val ctx = context.applicationContext
         val displayName = callerName ?: "Unknown"
 
@@ -310,12 +316,12 @@ object CallNotificationManager {
                 .build()
 
         postNotification(ctx, callId, displayName, "ongoing call")
-        notify(ctx, notification)
+        notify(ctx, callId, notification)
     }
 
     /** Shows a brief "Call Ended" notification that auto-cancels after ~2 seconds. */
     fun showEndedCall(context: Context, callId: UUID, callerName: String?) {
-        cancelDelayedCancel()
+        cancelDelayedCancel(callId)
         val ctx = context.applicationContext
         val displayName = callerName ?: "Unknown"
 
@@ -326,26 +332,25 @@ object CallNotificationManager {
                 .build()
 
         postNotification(ctx, callId, displayName, "ended call")
-        notify(ctx, notification)
+        notify(ctx, callId, notification)
 
-        delayedCancelJob =
+        delayedCancelJobs[callId] =
             scope.launch {
                 delay(ENDED_CANCEL_DELAY_MS)
-                cancel(ctx)
+                cancel(ctx, callId)
             }
     }
 
-    /** Cancels any active call notification. */
-    fun cancel(context: Context) {
-        cancelDelayedCancel()
-        NotificationManagerCompat.from(context.applicationContext).cancel(NOTIFICATION_ID)
-        CallKitTelecomLog.d(TAG) { "Cancelled call notification" }
+    /** Cancels the given call's notification. */
+    fun cancel(context: Context, callId: UUID) {
+        cancelDelayedCancel(callId)
+        NotificationManagerCompat.from(context.applicationContext).cancel(notificationId(callId))
+        CallKitTelecomLog.d(TAG) { "Cancelled call notification - callId: $callId" }
     }
 
-    /** Cancels any pending delayed-cancel job without cancelling the notification. */
-    private fun cancelDelayedCancel() {
-        delayedCancelJob?.cancel()
-        delayedCancelJob = null
+    /** Cancels this call's pending delayed-cancel job without cancelling the notification. */
+    private fun cancelDelayedCancel(callId: UUID) {
+        delayedCancelJobs.remove(callId)?.cancel()
     }
 
     /** Creates a Person with an icon for use in CallStyle notifications. */
@@ -378,9 +383,9 @@ object CallNotificationManager {
     }
 
     /** Notifies via NotificationManagerCompat, catching posting failures. */
-    private fun notify(ctx: Context, notification: Notification) {
+    private fun notify(ctx: Context, callId: UUID, notification: Notification) {
         try {
-            NotificationManagerCompat.from(ctx).notify(NOTIFICATION_ID, notification)
+            NotificationManagerCompat.from(ctx).notify(notificationId(callId), notification)
         } catch (e: Exception) {
             CallKitTelecomLog.e(TAG) { "Failed to post notification: ${e.message}" }
         }

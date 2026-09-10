@@ -8,8 +8,10 @@ import androidx.core.telecom.CallEndpointCompat
 import expo.modules.callkittelecom.events.CallEventEmitter
 import expo.modules.callkittelecom.events.CallEvents
 import expo.modules.callkittelecom.models.CallSession
+import expo.modules.callkittelecom.store.CallStore
 import expo.modules.callkittelecom.utils.CallKitTelecomLog
 import expo.modules.callkittelecom.utils.PermissionUtils
+import java.util.UUID
 
 /**
  * Manages Android call audio state and routing for the shared calls API.
@@ -67,14 +69,22 @@ object CallAudioManager {
         CallKitTelecomLog.d(TAG) { "Initialized CallAudioManager" }
     }
 
-    /** Receives Core-Telecom current endpoint updates from the active call scope. */
-    fun onEndpointChanged(endpoint: CallEndpointCompat) {
+    /**
+     * Receives Core-Telecom current endpoint updates from a call scope.
+     *
+     * With 2 concurrent sessions, both calls' scopes emit independently - only apply
+     * updates from [CallStore.activeSession], so a held call can't clobber the route
+     * state actually describing the call the user is talking on.
+     */
+    fun onEndpointChanged(callId: UUID, endpoint: CallEndpointCompat) {
+        if (CallStore.activeSession()?.id != callId) return
         currentEndpoint = endpoint
         emitRouteChanged()
     }
 
-    /** Receives Core-Telecom available endpoint updates from the active call scope. */
-    fun onAvailableEndpointsChanged(endpoints: List<CallEndpointCompat>) {
+    /** Receives Core-Telecom available endpoint updates from a call scope. See [onEndpointChanged]. */
+    fun onAvailableEndpointsChanged(callId: UUID, endpoints: List<CallEndpointCompat>) {
+        if (CallStore.activeSession()?.id != callId) return
         currentAvailableEndpoints = endpoints
         emitRouteChanged()
     }
@@ -146,7 +156,7 @@ object CallAudioManager {
     fun onAudioDeactivated(calls: List<CallSession>) {
         if (!isInitialized) return
 
-        DialtonePlayer.stop()
+        DialtonePlayer.stopAll()
         ProximityManager.release()
         CallKitTelecomLog.d(TAG) { "Deactivating audio session - calls: ${calls.size}" }
 
