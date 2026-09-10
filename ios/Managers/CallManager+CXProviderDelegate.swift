@@ -224,6 +224,7 @@ extension CallManager: CXProviderDelegate {
       let hasConnectingOutgoingCall = sessions.contains { session in
         (session.origin == .outgoingApp || session.origin == .outgoingSystem)
           && session.status == .connecting
+          && session.options.playDialtone
       }
       if hasConnectingOutgoingCall {
         DialtonePlayer.shared.play()

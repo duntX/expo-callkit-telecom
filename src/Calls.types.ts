@@ -66,6 +66,15 @@ export interface CallSession {
  */
 export interface CallOptions {
   hasVideo: boolean;
+  /**
+   * Whether to play the local dialtone (configured via
+   * `ExpoCallKitTelecomDefaultDialtone`) while this outgoing call connects.
+   *
+   * Defaults to `true`. Set to `false` for calls whose media already
+   * carries its own ringback (e.g. SIP early media on PSTN-routed calls),
+   * to avoid two overlapping dialtones.
+   */
+  playDialtone?: boolean;
 }
 
 /**

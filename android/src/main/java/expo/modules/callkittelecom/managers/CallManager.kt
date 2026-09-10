@@ -295,7 +295,9 @@ class CallManager private constructor() {
                     }
                 }
 
-                DialtonePlayer.play(context)
+                if (options.playDialtone) {
+                    DialtonePlayer.play(context)
+                }
 
                 CallEventEmitter.send(
                     CallEvents.OUTGOING_CALL_STARTED,

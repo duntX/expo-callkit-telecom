@@ -21,7 +21,7 @@ enum class CallSessionStatus(val value: String) {
 }
 
 /** Call-level options shared with JS and stored in session state. */
-data class CallOptions(val hasVideo: Boolean)
+data class CallOptions(val hasVideo: Boolean, val playDialtone: Boolean = true)
 
 /** Remote participant identity and optional contact/display details. */
 data class CallParticipant(
