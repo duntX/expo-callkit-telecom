@@ -21,6 +21,7 @@ import java.net.URL
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -31,6 +32,11 @@ import kotlinx.coroutines.withContext
  *
  * Shows caller information with answer/decline buttons. Automatically dismisses when the call
  * leaves the RINGING state (answered, declined, timed out, or ended elsewhere).
+ *
+ * `launchMode="singleInstance"`: if a second call rings while this activity is already showing
+ * for a different call, Android reuses this instance and delivers the new call via
+ * [onNewIntent] instead of a fresh [onCreate] - everything call-specific must be rebindable, not
+ * just set up once.
  *
  * Answer flow: answers the call directly, dismisses the keyguard via
  * [KeyguardManager.requestDismissKeyguard], then launches the main Activity so the user sees the
@@ -44,6 +50,7 @@ class IncomingCallActivity : Activity() {
 
     private var callId: UUID? = null
     private var isAnswering = false
+    private var sessionJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,8 +59,21 @@ class IncomingCallActivity : Activity() {
         configureWindowForLockScreen()
         setContentView(R.layout.activity_incoming_call)
 
-        val id = parseCallId() ?: return
+        bindForIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        CallKitTelecomLog.d(TAG) { "onNewIntent - reusing singleInstance activity for new call" }
+        bindForIntent(intent)
+    }
+
+    /** (Re)binds the whole UI to the call id carried by [intent]. Safe to call more than once. */
+    private fun bindForIntent(intent: Intent) {
+        val id = parseCallId(intent) ?: return
         callId = id
+        isAnswering = false
 
         val session = CallStore.session(id)
         if (session == null || session.status != CallSessionStatus.RINGING) {
@@ -84,7 +104,7 @@ class IncomingCallActivity : Activity() {
         )
     }
 
-    private fun parseCallId(): UUID? {
+    private fun parseCallId(intent: Intent): UUID? {
         val callIdStr = intent.getStringExtra(EXTRA_CALL_ID)
         return try {
             UUID.fromString(callIdStr)
@@ -110,8 +130,13 @@ class IncomingCallActivity : Activity() {
     private fun bindCallerInfo(displayName: String?, hasVideo: Boolean) {
         val name = displayName ?: "Unknown"
 
-        findViewById<TextView>(R.id.expo_callkit_telecom_avatar_text).text =
-            name.firstOrNull()?.uppercase() ?: "?"
+        findViewById<TextView>(R.id.expo_callkit_telecom_avatar_text).apply {
+            text = name.firstOrNull()?.uppercase() ?: "?"
+            visibility = View.VISIBLE
+        }
+        // Rebinding for a new call (onNewIntent) must not leave the previous call's avatar
+        // image showing while the new one's loadAvatar() call is still in flight (or absent).
+        findViewById<ImageView>(R.id.expo_callkit_telecom_avatar_image).visibility = View.GONE
 
         findViewById<TextView>(R.id.expo_callkit_telecom_caller_name).text = name
 
@@ -162,14 +187,27 @@ class IncomingCallActivity : Activity() {
 
     private fun bindButtons(id: UUID, hasVideo: Boolean) {
         val answerButton = findViewById<ImageButton>(R.id.expo_callkit_telecom_answer_button)
-        if (hasVideo) {
-            answerButton.setImageResource(R.drawable.expo_callkit_telecom_ic_videocam)
-        }
+        // Reset to the audio icon on rebind - a prior call bound on this same
+        // (singleInstance) activity may have left the video icon showing.
+        answerButton.setImageResource(
+            if (hasVideo) {
+                R.drawable.expo_callkit_telecom_ic_videocam
+            } else {
+                R.drawable.expo_callkit_telecom_ic_answer
+            }
+        )
         answerButton.setOnClickListener { onAnswerTapped(id) }
 
         findViewById<ImageButton>(R.id.expo_callkit_telecom_decline_button).setOnClickListener {
             onDeclineTapped(id)
         }
+    }
+
+    private fun onAnswerTapped(id: UUID) {
+        if (isAnswering) return
+        isAnswering = true
+        CallKitTelecomLog.d(TAG) { "Answer tapped - callId: $id" }
+        answerAndTransition(id)
     }
 
     /**
@@ -180,11 +218,7 @@ class IncomingCallActivity : Activity() {
      * dismissal succeeds. This matches the behavior of iOS CallKit where audio connects before the
      * device is unlocked.
      */
-    private fun onAnswerTapped(id: UUID) {
-        if (isAnswering) return
-        isAnswering = true
-        CallKitTelecomLog.d(TAG) { "Answer tapped - callId: $id" }
-
+    private fun answerAndTransition(id: UUID) {
         // Answer immediately — don't wait for keyguard dismissal
         CallManager.shared.answerCall(id)
 
@@ -236,18 +270,20 @@ class IncomingCallActivity : Activity() {
      * the CONNECTING transition is expected and handled by the keyguard dismissal flow.
      */
     private fun observeSessionChanges(id: UUID) {
-        scope.launch {
-            CallStore.sessionUpdates(id).collect { session ->
-                if (session.status == CallSessionStatus.ENDED) {
-                    finish()
-                } else if (!isAnswering && session.status != CallSessionStatus.RINGING) {
-                    CallKitTelecomLog.d(TAG) {
-                        "Call no longer ringing (${session.status.value}), finishing"
+        sessionJob?.cancel()
+        sessionJob =
+            scope.launch {
+                CallStore.sessionUpdates(id).collect { session ->
+                    if (session.status == CallSessionStatus.ENDED) {
+                        finish()
+                    } else if (!isAnswering && session.status != CallSessionStatus.RINGING) {
+                        CallKitTelecomLog.d(TAG) {
+                            "Call no longer ringing (${session.status.value}), finishing"
+                        }
+                        finish()
                     }
-                    finish()
                 }
             }
-        }
     }
 
     override fun onResume() {
